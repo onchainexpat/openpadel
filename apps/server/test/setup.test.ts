@@ -5,8 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
 import { plan, KumiError, type Db } from "@kumi/core";
+import { both, type Key } from "@kumi/i18n";
 import { ClubFileError, readClubFile, setupClub } from "../src/setup.ts";
-import { doctor } from "../src/doctor.ts";
+import { doctor, pitrTestCheck } from "../src/doctor.ts";
 
 let db: Db, drop: () => Promise<void>;
 const dir = mkdtempSync(join(tmpdir(), "kumi-setup-"));
@@ -181,6 +182,36 @@ test("doctor: practice mode is said while it's on, in both languages, and ok onc
   const live = await practice({ NODE_ENV: "production", KUMI_RESEND_API_KEY: "re_x", KUMI_MAIL_FROM: "a@b.example" });
   assert.equal(live.state, "ok"); assert.match(live.text.en, /^Practice mode: off/);
   for (const c of [fresh, one, two, live]) assert.ok(!/\u2014/.test(c.text.en + c.text.es), "no em dashes");
+});
+
+test("doctor: an update's snapshot isn't counted as a backup, and the check says why and what to run", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "kumi-snap-"));
+  const backups = async () => (await doctor(db, { KUMI_BACKUP_DIR: folder, NODE_ENV: "production" })).find((c) => c.id === "backups")!;
+  const none = await backups();
+  assert.equal(none.state, "warn"); assert.match(none.text.en, /none in .* yet\. The nightly one runs by itself; openpadel backup takes one now\./);
+  writeFileSync(join(folder, "update-none-to-4730592-20261118T202455Z.dump"), "x");
+  const snap = await backups();
+  assert.equal(snap.state, "warn", "an update's snapshot has no manifest, no offsite copy and no restore test: not a backup");
+  assert.match(snap.text.en, /The update snapshot there \(update-\.\.\.dump\) isn't a backup/); assert.match(snap.text.en, /openpadel backup takes one now/);
+  assert.match(snap.text.es, /no es una copia de seguridad/);
+  writeFileSync(join(folder, "kumi-2026-11-18T2030.dump"), "x");
+  assert.equal((await backups()).state, "ok");
+});
+
+test("doctor: the point-in-time test on a new server says from when it can run, on the club's clock", () => {
+  const now = new Date("2026-11-18T20:30:00Z"), o = { now, production: true, docker: false, tz: "America/Los_Angeles" };
+  // The first base backup 4 minutes ago: it can be tested 11 minutes after it, from 12:38 in Los Angeles.
+  const soon = pitrTestCheck(null, "2026-11-18T20:26:30Z", o);
+  assert.deepEqual([soon.state, soon.key, soon.params], ["warn", "pitr_test.too_new", { time: "12:38" }]);
+  const words = both(`doctor.${soon.key}` as Key, soon.params);
+  assert.match(words.en, /can't before 12:38 \(the club's time\)/); assert.match(words.es, /no se puede antes de las 12:38 \(hora del club\)/);
+  assert.ok(!/\u2014/.test(words.en + words.es));
+  assert.equal(pitrTestCheck(null, "2026-11-18T20:26:30Z", { ...o, docker: true }).key, "pitr_test.too_new_docker");
+  // Past then, or no base backup yet: run it now, as before.
+  assert.equal(pitrTestCheck(null, "2026-11-18T20:10:00Z", o).key, "pitr_test.never");
+  assert.equal(pitrTestCheck(null, null, o).key, "pitr_test.never");
+  assert.equal(pitrTestCheck({ last_error: null, last_ok_at: new Date("2026-11-10T00:00:00Z"), details: { seconds: 90 } }, null, o).state, "ok");
+  assert.equal(pitrTestCheck({ last_error: "boom", last_ok_at: null, details: {} }, null, o).state, "fail");
 });
 
 test("doctor: Apple Pay and Google Pay need the members' domain registered with Stripe", async () => {

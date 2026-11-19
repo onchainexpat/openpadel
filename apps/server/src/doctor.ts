@@ -6,7 +6,7 @@ import { both, money, type Key, type Params, type Text } from "@kumi/i18n";
 import { answerCounts, monthOf, clubStripeAccount, dayText, emailDomain, suppressionCounts, heartbeats, heldSummary, leavingOn, localDate, localParts, movedAway, parseSecretKey, pendingMigrations, ownCatalog, pluginSecrets, problemText, readOnlySince, StripeProvider, textCounts, textingRegistration, usageGaps, usageView, type Db, type Manifest } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
 import { offsitePrunes } from "./backups.ts";
-import { archiverFailing, archiverState, PITR_CONF } from "./pitr.ts";
+import { archiverFailing, archiverState, PITR_CONF, PITR_TEST_WAIT_MS } from "./pitr.ts";
 import { checkTwilio, hasSender, twilioFromEnv } from "./twilio.ts";
 import { checkSendingDomain } from "./mailer.ts";
 import { answerModels, checkAnswerKeys } from "./answerer.ts";
@@ -222,8 +222,12 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // Backups, where the one-server setup keeps them.
   const dir = env.KUMI_BACKUP_DIR ?? "/var/backups/kumi";
   let newest: number | null = null;
-  try { for (const f of readdirSync(dir)) if (/^kumi-.*\.dump$/.test(f)) newest = Math.max(newest ?? 0, statSync(`${dir}/${f}`).mtimeMs); } catch { /* no folder: no backups here */ }
-  if (newest === null) add("backups", production ? "warn" : "off", "backups.none", { dir }, "docs/setup/accounts/server.md");
+  // An update's snapshot (update-*.dump, deploy/release.sh) isn't counted: it has no manifest of the rows to check a
+  // restore against, isn't sealed and sent offsite, isn't what the restore test opens, and only the last few are kept.
+  // It's there to undo that update. When it's all there is, the check says so, so it isn't read as a backup.
+  let snapshot = false;
+  try { for (const f of readdirSync(dir)) { if (/^kumi-.*\.dump$/.test(f)) newest = Math.max(newest ?? 0, statSync(`${dir}/${f}`).mtimeMs); else if (/^update-.*\.dump$/.test(f)) snapshot = true; } } catch { /* no folder: no backups here */ }
+  if (newest === null) add("backups", production ? "warn" : "off", snapshot ? "backups.only_update" : "backups.none", { dir }, "docs/setup/accounts/server.md");
   else { const hours = Math.round((now.getTime() - newest) / 3600_000); add("backups", hours > 36 ? "warn" : "ok", hours > 36 ? `backups.old${d}` : "backups.ok", { hours, dir }); }
   // The server's key for the secrets it keeps (sealed.ts): production won't start without it.
   if (!env.KUMI_SECRET_KEY?.trim()) add("secret_key", production ? "fail" : "warn", "secret_key.missing", {}, opsDoc);
@@ -289,12 +293,27 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     else if (pd.offsite === "no_prune") add("pitr", "ok", "pitr.ok_local_no_prune", { from });
     else add("pitr", "ok", "pitr.ok", { from, copies: both((pd.repos ?? []).includes(2) ? "doctor.pitr.copies_both" : "doctor.pitr.copies_local") });
   }
-  const pt = hb.pitr_test;
-  if (pt?.last_error) add("pitr_test", "fail", "pitr_test.failing", { error: pt.last_error }, pitrDoc);
-  else if (!pt?.last_ok_at) add("pitr_test", production ? "warn" : "off", `pitr_test.never${d}`, {}, pitrDoc);
-  else {
-    const days = Math.round(ago(pt.last_ok_at)! / 24), minutes = Math.max(1, Math.round(Number((pt.details as { seconds?: number }).seconds ?? 0) / 60));
-    add("pitr_test", days > 40 ? "warn" : "ok", days > 40 ? `pitr_test.old${d}` : "pitr_test.ok", { days, minutes });
-  }
+  const tzOf = async () => (await db.selectFrom("club").select("time_zone").executeTakeFirst().catch(() => undefined))?.time_zone ?? "UTC";
+  const pt = pitrTestCheck(hb.pitr_test ?? null, pd.restorable_from ?? null, { now, production, docker, tz: await tzOf() });
+  add("pitr_test", pt.state, pt.key, pt.params, pt.state === "ok" ? undefined : pitrDoc);
   return checks;
+}
+
+/** The point-in-time test's check, from its heartbeat and the first base backup (`restorableFrom`). It goes back to a
+ *  minute between that backup and ten minutes ago (pitr.ts, pitrTestRun): on a new server it can't run until
+ *  PITR_TEST_WAIT_MS after the backup, so the check says from when, on the club's clock, rather than "run it now". */
+export function pitrTestCheck(pt: { last_error: string | null; last_ok_at: Date | null; details: Record<string, unknown> } | null, restorableFrom: string | null,
+  o: { now: Date; production: boolean; docker: boolean; tz: string }): { state: CheckState; key: string; params: Params } {
+  const d = o.docker ? "_docker" : "";
+  if (pt?.last_error) return { state: "fail", key: "pitr_test.failing", params: { error: pt.last_error } };
+  if (!pt?.last_ok_at) {
+    const from = restorableFrom ? new Date(restorableFrom) : null;
+    const ready = from ? new Date(Math.ceil((from.getTime() + PITR_TEST_WAIT_MS + 1000) / 60_000) * 60_000) : null;
+    const state: CheckState = o.production ? "warn" : "off";
+    if (!ready || ready <= o.now) return { state, key: `pitr_test.never${d}`, params: {} };
+    const lp = localParts(ready, o.tz), z = (n: number) => String(n).padStart(2, "0");
+    return { state, key: `pitr_test.too_new${d}`, params: { time: `${z(lp.h)}:${z(lp.min)}` } };
+  }
+  const days = Math.round((o.now.getTime() - new Date(pt.last_ok_at).getTime()) / 86400_000), minutes = Math.max(1, Math.round(Number((pt.details as { seconds?: number }).seconds ?? 0) / 60));
+  return days > 40 ? { state: "warn", key: `pitr_test.old${d}`, params: { days, minutes } } : { state: "ok", key: "pitr_test.ok", params: { days, minutes } };
 }

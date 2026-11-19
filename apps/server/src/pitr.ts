@@ -29,6 +29,9 @@ import { s3FromEnv } from "./s3.ts";
 type Env = Record<string, string | undefined>;
 
 export const STANZA = "kumi";
+/** How long after the first base backup the point-in-time test can run: it goes back to a minute at least one minute
+ *  after that backup and at least ten minutes ago (pitrTestRun), so eleven minutes. doctor says the time it can from. */
+export const PITR_TEST_WAIT_MS = 11 * 60_000;
 export const PITR_CONF = "/etc/pgbackrest/pgbackrest.conf";
 /** How far back each copy reaches, in days: pgBackRest keeps the base backups needed to go back this far (so the
  *  oldest one kept can be up to a week older, with weekly full backups). */
@@ -367,7 +370,7 @@ export interface PitrCheck { ok: boolean; target: string; seconds: number; probl
 export async function pitrTestRun(live: Kysely<any>, dbname: string, info: ArchiveInfo, o: PitrOptions & { repo?: number; base?: string; pick?: number; at?: Date } = {}): Promise<PitrCheck> {
   const now = o.now ?? new Date(), from = restorableFrom(info, o.repo);
   if (!from) throw new PitrRefused("no_base_backup");
-  const earliest = Math.max(from.getTime() + 60_000, now.getTime() - 7 * 86400_000), latest = now.getTime() - 10 * 60_000;
+  const earliest = Math.max(from.getTime() + 60_000, now.getTime() - 7 * 86400_000), latest = now.getTime() - 10 * 60_000;   // PITR_TEST_WAIT_MS after `from`
   if (!o.at && latest <= earliest) throw new PitrRefused("too_new_to_test");
   const target = o.at ?? new Date(Math.floor((earliest + (o.pick ?? Math.random()) * (latest - earliest)) / 60_000) * 60_000);
   const before = new Date(target.getTime() - 60_000), after = new Date(target.getTime() + 60_000);
