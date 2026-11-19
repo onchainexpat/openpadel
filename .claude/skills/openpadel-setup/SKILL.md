@@ -19,7 +19,8 @@ description: Set up openPadel for a padel club, check on one that's set up, or w
    (`docs/setup/club-packet.md`), with the currency, each location's opening hours and one court price,
    run `openpadel setup plan`, show the owner the plan, then `openpadel setup apply`. The owner's first sign-in
    before email is set up: `openpadel sign-in-link <owner's email>` on the server, and give them the link
-   without opening it (never read a code out of the log for them).
+   without opening it (never read a code out of the log for them). Tell them to have their phone at hand: right after,
+   the staff app has them set up a passkey or an authenticator app before anything else works.
 5. Much of what the guide does in the staff app (opening hours, prices, membership plans, coaches, the
    club's answers) you can do with the club's commands instead, once the owner signs you in:
    `openpadel login https://staff.<their address> --device --no-wait --json`, show them the link and the code,

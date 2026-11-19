@@ -9,7 +9,7 @@ import { protectedPost } from "./pow.ts";
 import { passkeyWords } from "./passkeys.ts";
 import { usePreview } from "./Preview.tsx";
 
-type Status = { required: boolean; for_changes?: boolean; authenticator: boolean; passkeys: number; recovery_left: number; two_step_now: boolean };
+type Status = { required: boolean; for_changes?: boolean; authenticator: boolean; passkeys: number; recovery_left: number; two_step_now: boolean; by_link?: boolean };
 const message = (e: unknown) => (e instanceof ApiError ? e.message : passkeyWords(e) ?? String((e as Error).message));
 
 /** The recovery codes, once: they're never shown again. */
@@ -79,7 +79,7 @@ export function TwoFactor() {
     <main class="card">
       <h1>{t("ui.two_step_title")}</h1>
       {gate === "setup" && mode === "choose" && <>
-        <p>{t("ui.two_step_setup_intro", { club: club.value?.name ?? "" })}</p>
+        <p>{t(status?.by_link ? "ui.two_step_setup_intro_link" : "ui.two_step_setup_intro", { club: club.value?.name ?? "" })}</p>
         <button class="primary" disabled={busy} onClick={addPasskey}>{t("ui.two_step_use_passkey_here")}</button>
         <p class="or">{t("ui.or")}</p>
         <button disabled={busy} onClick={() => setMode("authenticator")}>{t("ui.two_step_use_app")}</button>

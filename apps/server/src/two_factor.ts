@@ -8,7 +8,7 @@ import { mayAddSecondStep } from "./passkeys.ts";
 import { RateLimiter } from "./limits.ts";
 import type { Mailer } from "./mailer.ts";
 
-export type SessionMe = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
+export type SessionMe = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null; owed?: boolean } | null;
 export interface TwoFactorDeps { db: Db; mailer: Mailer; now: () => Date; lang: (c: Context<any>) => Lang; me: (c: Context<any>) => SessionMe;
   /** Wrong second-step codes per person, shared with the assistant's sign-in page (oauth.ts). */
   tries?: RateLimiter }
@@ -80,7 +80,9 @@ export function twoFactorRoutes(deps: TwoFactorDeps) {
     const passkeys = (await db.selectFrom("passkey").select("credential_id").where("person_id", "=", me.id).where("revoked_at", "is", null).execute()).length;
     // required: at every sign-in; for_changes: for the club's most sensitive changes (actions.ts, requireStrongAuth).
     return c.json({ required: await needsTwoFactor(db, me.id), for_changes: await secondStepForChanges(db, me.id), authenticator: Boolean(await activeFactor(db, me.id)), passkeys,
-      recovery_left: await recoveryLeft(db, me.id), two_step_now: me.method !== "email_code" && me.method !== "phone_code" });
+      recovery_left: await recoveryLeft(db, me.id), two_step_now: me.method !== "email_code" && me.method !== "phone_code",
+      // Signed in by a one-time link: the screen says the link was the first step.
+      ...(me.owed && me.gate ? { by_link: true } : {}) });
   });
 
   app.post("/my/two-factor/codes", async (c) => {

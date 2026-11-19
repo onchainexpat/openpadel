@@ -82,7 +82,8 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** Where the plugin catalog's index is (KUMI_PLUGIN_CATALOG_URL): an address or a file; the bundled sample without one. */
   pluginCatalogUrl?: string | null }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
-type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null } | null;
+type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null;
+  /** Started by a sign-in link (auth.ts): it owes a second step whatever the club's rules say. */ owed?: boolean } | null;
 type Env = { Variables: { me: Me; lang: Lang } };
 const EmailStart = z.object({ email: z.email() });
 const EmailVerify = z.object({ email: z.email(), code: z.string().check(z.regex(/^\s*\d{6}\s*$/)) });
@@ -160,8 +161,10 @@ export function makeApp(deps: AppDeps) {
       // A passkey is both steps; an emailed or texted code then an authenticator or recovery code is too.
       const method = s.method === "passkey" ? "passkey" : s.second_factor ? "two_factor" : s.method === "phone_code" ? "phone_code" : "email_code";
       let gate: "setup" | "verify" | null = null;
-      if ((method === "email_code" || method === "phone_code") && await needsTwoFactor(db, s.id)) gate = (await hasSecondFactor(db, s.id)) ? "verify" : "setup";
-      me = { id: s.id, display_name: s.display_name, locale: s.locale, method, created_at: s.created_at, token_hash: s.token_hash, gate };
+      // A sign-in link's session owes one whatever the club says (auth.ts); otherwise the club's rules and their own choice.
+      const owed = (method === "email_code" || method === "phone_code") && s.second_step_owed;
+      if ((method === "email_code" || method === "phone_code") && (owed || await needsTwoFactor(db, s.id))) gate = (await hasSecondFactor(db, s.id)) ? "verify" : "setup";
+      me = { id: s.id, display_name: s.display_name, locale: s.locale, method, created_at: s.created_at, token_hash: s.token_hash, gate, ...(owed ? { owed } : {}) };
     }
     c.set("me", me);
     c.set("lang", me && isLang(me.locale) ? me.locale : pickLang(c.req.header("accept-language")));

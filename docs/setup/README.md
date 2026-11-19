@@ -100,6 +100,13 @@ only while the server has no email service; opening it shows a Sign in button, a
 ([docs/cli/README.md](../cli/README.md), "The owner's first sign-in"). Other staff sign in once email is
 set up.
 
+Signing in by that link, the owner sets up a second step right away, whatever the club's sign-in rules
+say: nothing in the staff app works until they have. Tell them to have their phone at hand: a passkey on
+the phone or computer they're using (both steps at once), or an authenticator app on their phone (Google
+Authenticator, Microsoft Authenticator, 1Password and the like) with ten recovery codes to keep somewhere
+safe. With one already set up, they give it instead. This way a link that went astray, having passed
+through the agent and a chat, opens nothing by itself.
+
 The emailed code is enough to sign in. A second step is the owner's to add, and the staff app offers
 it the first time it's needed: the club's most sensitive changes (its settings, roles, the payments
 account, the vault, "Download everything") ask owners and managers for one, and show how to set it up

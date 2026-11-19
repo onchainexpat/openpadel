@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { sql } from "kysely";
 import { freshDb } from "../../../packages/core/test/helpers.ts";
-import { run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { base32Decode, run, runAsSystem, totp, type Actor, type Db } from "@kumi/core";
 import { makeApp } from "../src/app.ts";
 import { MemoryMailer } from "../src/mailer.ts";
 import { LINK_MINUTES, makeSignInLink, signInLinkTarget, useSignInLink } from "../src/auth.ts";
@@ -59,8 +59,9 @@ test("opening the link changes nothing; its button signs the owner in once, into
   const used = await app.request(pathOf(token), { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "" });
   assert.equal(used.status, 303); assert.equal(used.headers.get("location"), "/");
   const cookie = used.headers.get("set-cookie")!.split(";")[0]!;
-  const me = await (await app.request("/me", { headers: { cookie } })).json() as { person: { id: string }; signed_in_with: string };
-  assert.equal(me.person.id, ownerId); assert.equal(me.signed_in_with, "email_code", "one step, like an emailed code: the club's second-step rules apply");
+  const me = await (await app.request("/me", { headers: { cookie } })).json() as { person: { id: string }; signed_in_with: string; gate: string | null };
+  assert.equal(me.person.id, ownerId); assert.equal(me.signed_in_with, "email_code");
+  assert.equal(me.gate, "setup", "a link's session owes a second step, though the club asks none at sign-in");
   // It proves nothing about the mailbox.
   const ids = await db.selectFrom("auth_identity").select("verified_at").where("person_id", "=", ownerId).where("kind", "=", "email").execute();
   assert.ok(ids.every((i) => i.verified_at === null));
@@ -69,6 +70,62 @@ test("opening the link changes nothing; its button signs the owner in once, into
   assert.equal(again.status, 404);
   assert.match(await again.text(), /Este enlace para iniciar sesión ya se usó o venció \(cada uno funciona una vez, durante 15 minutos\)/);
   assert.equal((await app.request(pathOf(token))).status, 404);
+});
+
+test("a link's session can do nothing until a second step is set up; then it's a full session; with one already, it must be given", async () => {
+  const app = appWith("log"), json = { "content-type": "application/json" };
+  const signIn = async () => {
+    const { token } = (await makeSignInLink(db, "robin@kestrel.example", NOW))!;
+    return (await app.request(pathOf(token), { method: "POST" })).headers.get("set-cookie")!.split(";")[0]!;
+  };
+  const read = (cookie: string) => app.request("/staff/coaches", { headers: { cookie } });
+  const act = (cookie: string) => app.request("/actions/location.create/plan", { method: "POST", headers: { cookie, ...json }, body: JSON.stringify({ name: "Northside", time_zone: "America/Los_Angeles" }) });
+  const gateOf = async (cookie: string) => ((await (await app.request("/me", { headers: { cookie } })).json()) as { gate: string | null }).gate;
+
+  // No passkey or authenticator yet: setup, and nothing else answers.
+  const first = await signIn();
+  assert.equal(await gateOf(first), "setup");
+  for (const r of [await read(first), await act(first)]) { assert.equal(r.status, 403); assert.equal(((await r.json()) as { error: string }).error, "error.two_step_needed"); }
+  const status = await (await app.request("/my/two-factor", { headers: { cookie: first } })).json() as { by_link?: boolean; two_step_now: boolean };
+  assert.equal(status.by_link, true); assert.equal(status.two_step_now, false);
+  // The device and consent pages on such a session: finish signing in in the club's app first, in the person's language.
+  const reg = await (await app.request("/oauth/register", { method: "POST", headers: json, body: JSON.stringify({ client_name: "openpadel (laptop)", redirect_uris: ["http://127.0.0.1/kumi-device"], token_endpoint_auth_method: "none", software_id: "kumi-cli" }) })).json() as { client_id: string };
+  const started = await (await app.request("/oauth/device_authorization", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: reg.client_id, resource: "https://staff.kestrel.example/mcp", scope: "kumi" }).toString() })).json() as { user_code: string };
+  const device = await (await app.request("/oauth/device", { method: "POST", headers: { cookie: first, "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code: started.user_code }).toString() })).text();
+  assert.match(device, /Finish signing in in the club&#39;s app \(with your passkey, or by setting one up\)/);
+  assert.ok(!/name="req"/.test(device), "no consent to allow on half a sign-in");
+  // Setting up an authenticator, with its recovery codes, makes the session two-step: everything answers.
+  const setup = await (await app.request("/auth/totp/setup", { method: "POST", headers: { cookie: first, ...json }, body: "{}" })).json() as { challenge_id: string; key: string };
+  const secret = base32Decode(setup.key.replaceAll(" ", ""));
+  const confirmed = await app.request("/auth/totp/confirm", { method: "POST", headers: { cookie: first, ...json }, body: JSON.stringify({ challenge_id: setup.challenge_id, code: totp(secret, NOW) }) });
+  assert.equal(confirmed.status, 200, await confirmed.clone().text());
+  assert.equal(((await confirmed.json()) as { codes: string[] }).codes.length, 10);
+  assert.equal(await gateOf(first), null);
+  assert.equal((await read(first)).status, 200);
+  assert.equal((await act(first)).status, 200);
+
+  // The next link: they have an authenticator, so they give its code before anything works.
+  const second = await signIn();
+  assert.equal(await gateOf(second), "verify");
+  assert.equal((await read(second)).status, 403);
+  assert.equal((await app.request("/auth/totp/setup", { method: "POST", headers: { cookie: second, ...json }, body: "{}" })).status, 403, "no second authenticator from a link: only giving the one they have");
+  const later = new Date(NOW.getTime() + 60_000), app2 = makeApp({ db, mailer, mailReach: "log", secureCookies: false, publicUrl: "https://staff.kestrel.example", memberUrl: "https://kestrel.example", now: () => later });
+  assert.equal((await app2.request("/auth/totp/verify", { method: "POST", headers: { cookie: second, ...json }, body: JSON.stringify({ code: totp(secret, later) }) })).status, 200);
+  assert.equal((await app2.request("/staff/coaches", { headers: { cookie: second } })).status, 200);
+});
+
+test("signing in by an emailed code is as before: no second step unless the club or the person asks one", async () => {
+  const app = makeApp({ db, mailer, mailReach: "sent", secureCookies: false, publicUrl: "https://staff.kestrel.example", memberUrl: "https://kestrel.example", now: () => NOW });
+  const lee = ((await run(db, "person.create", { display_name: "Lee Chen", email: "lee@kestrel.example" }, owner)).result as { person_id: string }).person_id;
+  await run(db, "role.assign", { person_id: lee, role: "manager" }, owner);
+  const json = { "content-type": "application/json" };
+  await app.request("/auth/email/start", { method: "POST", headers: json, body: JSON.stringify({ email: "lee@kestrel.example" }) });
+  const code = mailer.last("lee@kestrel.example")!.text.match(/\b(\d{6})\b/)![1]!;
+  const cookie = (await app.request("/auth/email/verify", { method: "POST", headers: json, body: JSON.stringify({ email: "lee@kestrel.example", code }) })).headers.get("set-cookie")!.split(";")[0]!;
+  assert.equal(((await (await app.request("/me", { headers: { cookie } })).json()) as { gate: string | null }).gate, null);
+  assert.equal((await app.request("/staff/coaches", { headers: { cookie } })).status, 200);
+  assert.equal((await db.selectFrom("web_session").select("second_step_owed").where("person_id", "=", lee).executeTakeFirstOrThrow()).second_step_owed, false);
 });
 
 test("of two at once only one gets in; an owner no longer an owner gets nothing", async () => {

@@ -23,7 +23,8 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
    there themselves. Never print the settings file or a key. `openpadel export` and restoring an export ask
    for the file's passphrase: the owner runs those in their own terminal and types it. Never read a sign-in
    code out of the server's log for the owner: before email is set up, `openpadel sign-in-link <owner's email>`
-   prints a one-time link (15 minutes) that you hand them without opening it.
+   prints a one-time link (15 minutes) that you hand them without opening it; they set up a second step
+   (passkey or authenticator app, so their phone at hand) before the staff app does anything.
 3. **Never ask for a Social Security number, ID, bank account or card details.** Stripe collects
    those on its own pages, from the owner directly.
 4. **The owner creates every outside account** (domain, server, Stripe, Resend, Playtomic API keys)

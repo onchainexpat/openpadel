@@ -92,8 +92,11 @@ openpadel sign-in-link owner@yourclub.com      # prints a link for that owner; -
 The agent gives the owner that link (in the chat is fine) and never opens it itself. It's the one thing passed on, and
 it's made to be: it works once, for 15 minutes, only for an owner, and only while the server has no email service (with
 one, the command and the link both refuse, and the code goes by email). Opening it only shows whom it signs in; its
-button signs in, so a chat app previewing the link can't use it up. Making a new one ends the one before. Once the
-owner is in, they allow the agent's `--device` code as above.
+button signs in, so a chat app previewing the link can't use it up. Making a new one ends the one before. Right after,
+the staff app asks the owner to set up a second step, a passkey on that device or an authenticator app on their phone
+(with ten recovery codes to keep), or to give the one they have; until then nothing else works, the device page
+included. So tell the owner to have their phone at hand. Once the owner is in, they allow the agent's `--device`
+code as above.
 
 **On the club's own server.** `openpadel login ... --device` works there too (run it as root, as the server's other
 commands are): the server's `openpadel` runs as the openPadel service user, so the sign-in is kept in

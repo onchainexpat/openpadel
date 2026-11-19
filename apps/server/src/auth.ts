@@ -100,12 +100,14 @@ export async function verifyEmailCode(db: Db, email: string, code: string, userA
   return { token: await startSession(db, person.id, userAgent, now, ch.id), personId: person.id };
 }
 
-async function startSession(db: Db, personId: string, userAgent: string | null, now: Date, challengeId: string, method: "email_code" | "phone_code" = "email_code", proves = true): Promise<string> {
+/** `proves`: the code came to the person's own mailbox (a sign-in link didn't). `owesSecondStep`: the session can do
+ *  nothing but give or set up a second step first, whatever the club's rules say (a sign-in link's). */
+async function startSession(db: Db, personId: string, userAgent: string | null, now: Date, challengeId: string, method: "email_code" | "phone_code" = "email_code", proves = true, owesSecondStep = false): Promise<string> {
   await refuseQueued(db, personId);
   const token = randomBytes(32).toString("base64url");
   await db.transaction().execute(async (trx) => {
     await trx.updateTable("auth_challenge").set({ consumed_at: now }).where("id", "=", challengeId).execute();
-    await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: personId, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: userAgent, revoked_at: null, method }).execute();
+    await trx.insertInto("web_session").values({ token_hash: sha(token), person_id: personId, expires_at: new Date(now.getTime() + SESSION_DAYS * 864e5), last_seen_at: now, user_agent: userAgent, revoked_at: null, method, second_step_owed: owesSecondStep }).execute();
     if (method === "email_code" && proves) {
       const proven = await trx.updateTable("auth_identity").set({ verified_at: now }).where("person_id", "=", personId).where("kind", "=", "email").where("verified_at", "is", null).returning("id").execute();
       // The first sign-in that proves an address someone else entered for them (the desk, a parent giving a kid their own
@@ -291,7 +293,7 @@ export async function refuseQueued(db: Db, personId: string) {
 export async function sessionPerson(db: Db, token: string | undefined, now = new Date()) {
   if (!token) return null;
   const s = await db.selectFrom("web_session").innerJoin("person", "person.id", "web_session.person_id")
-    .select(["person.id", "person.display_name", "person.locale", "web_session.token_hash", "web_session.method", "web_session.second_factor", "web_session.created_at"])
+    .select(["person.id", "person.display_name", "person.locale", "web_session.token_hash", "web_session.method", "web_session.second_factor", "web_session.second_step_owed", "web_session.created_at"])
     .where("web_session.token_hash", "=", sha(token)).where("web_session.revoked_at", "is", null).where("web_session.expires_at", ">", now)
     .where("person.status", "!=", "archived")
     // Deleted on the database a restore replaced, and not deleted again here yet (after_restore.ts): signed out.
@@ -310,8 +312,10 @@ export async function signOut(db: Db, token: string | undefined, now = new Date(
 // only reach the server's log, which the owner can't read, and the agent would have to read a code out of it and pass it on.
 // Instead, whoever runs the server makes one link for one owner. It works once, for LINK_MINUTES, and only while there's no
 // email service; making a new one ends the one before. Opening it changes nothing (a chat app previewing it can't use it
-// up): the page's button signs in. It counts as one step, like an emailed code (the club's second-step rules apply), and
-// it proves nothing about the mailbox, so the address isn't marked confirmed.
+// up): the page's button signs in. It's one step, and it always owes a second, whatever the club's rules say: until the
+// owner sets up a passkey or an authenticator (or gives the one they have), only those pages answer, so a link that
+// went astray (it passed through an agent and a chat) opens nothing. It proves nothing about the mailbox either, so the
+// address isn't marked confirmed.
 export const LINK_MINUTES = 15;
 
 async function ownerByEmail(db: Db | Trx, email: string) {
@@ -348,5 +352,5 @@ export async function useSignInLink(db: Db, token: string, userAgent: string | n
   if (!used) return null;
   const owner = await ownerByEmail(db, used.target);
   if (!owner || owner.id !== used.person_id) return null;
-  return { token: await startSession(db, owner.id, userAgent, now, used.id, "email_code", false), personId: owner.id };
+  return { token: await startSession(db, owner.id, userAgent, now, used.id, "email_code", false, true), personId: owner.id };
 }
