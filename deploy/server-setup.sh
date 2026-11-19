@@ -171,7 +171,11 @@ kumi_sites "$KUMI_HOST" "staff.$KUMI_HOST" "$upstream" /opt/kumi/app > /etc/cadd
 # the settings file (a server set up before 0.1.0 had it there: take it out).
 if id -nG caddy | tr ' ' '\n' | grep -qx kumi; then gpasswd -d caddy kumi >/dev/null; systemctl restart caddy; fi
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-systemctl reload caddy || systemctl restart caddy
+# A reload goes through the admin socket the config names; until Caddy has started with this config (a fresh install,
+# or one still on 127.0.0.1:2019) there's no socket to reach, and systemd would print "Job for caddy.service failed".
+# Then a restart is the way, and it's quiet.
+if [ -S /var/lib/caddy/admin.sock ] && systemctl is-active --quiet caddy; then systemctl reload caddy 2>/dev/null || systemctl restart caddy
+else systemctl restart caddy; fi
 
 # Releases are kept side by side (release.sh); /opt/kumi/app links to the running one. All of it is root's.
 install -d -m 755 -o root -g root /opt/kumi /opt/kumi/releases
