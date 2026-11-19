@@ -38,6 +38,12 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
    ssh root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
    deploy/ship.sh root@SERVER
    ```
+   SSH options the server needs (a key file, a jump host, an ssh config) go where ssh takes them in the
+   first command, and **after the target** for `ship.sh`, which passes them on to ssh:
+   ```bash
+   ssh -i ~/.ssh/club -J admin@bastion.example root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
+   deploy/ship.sh root@SERVER -i ~/.ssh/club -J admin@bastion.example     # or: deploy/ship.sh club-server -F ./ssh_config
+   ```
    `server-setup.sh` installs a firewall, Postgres 17, Node 24, Caddy (which gets HTTPS
    certificates and renews them itself), openPadel as a service, the `openpadel` command and a nightly
    backup. It's safe to run again. `ship.sh` sends the committed code, builds both apps and
