@@ -7,7 +7,10 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Not released yet
+## 0.8.0 (2026-11-20)
+
+A finished look for both apps: icons, loading shapes, twelve new drawings, a getting-started list for a new club, and
+the same page widths across the staff app.
 
 ### Added
 - Getting started: a brand-new club's Today shows its owner and managers a short list of what's left before members
@@ -45,6 +48,13 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   the browser on every visit.
 - Every file picker in the staff app (the club's logo, a coach's photo, the vault, importing people, Playtomic's
   export) says "Choose a file" in the person's language, not the browser's.
+- Today's "Since you last looked" names the day when that was another day ("Since Thu 9:55 PM"), so last night's time
+  never reads as later today.
+
+### When updating
+- One database change (Getting started's state), applied by itself when the server starts: `deploy/ship.sh`, or on
+  Docker `deploy/docker/update.sh v0.8.0`. A club that's already running sees Getting started on Today once, with
+  its steps ticked, until someone puts it away.
 
 ## 0.7.4 (2026-11-20)
 
