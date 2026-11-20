@@ -1,7 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
-import { api, clubTime, dollars, FileInput, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, clubTime, dollars, FileInput, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 
 type Kind = "people" | "bookings" | "programs";
@@ -41,7 +41,7 @@ export function MoveFiles() {
   const allowed = me.value?.can ? mayDo("move.upload") : (me.value?.roles ?? []).some((r) => r.key === "owner" || r.key === "manager");
   if (!allowed) return <main class="card"><p>{t("ui.not_for_your_role")}</p></main>;
   if (failed) return <main class="card"><p class="error" role="alert">{failed}</p></main>;
-  if (!s) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!s) return <Skeleton />;
   const fmt = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   const pick = (kind: Kind) => async (f: File | null, input: HTMLInputElement) => {
     if (!f) return;

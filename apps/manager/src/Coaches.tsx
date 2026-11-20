@@ -4,7 +4,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
-import { api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
+import { Skeleton, api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
 type Profile = { bio: string | null; translations?: unknown; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
 type Stretch = { location_id: string; weekday: number; starts: string; ends: string };
@@ -35,7 +35,7 @@ export function Coaches() {
   const load = () => api<Data>("/staff/coaches").then((x) => { setD(x); if (!x.can_edit_all && x.coaches.length === 1) setOpen(x.coaches[0]!.id); });
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, []);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const rates = (p: Profile) => Object.entries(p.rates).sort((a, b) => Number(a[0]) - Number(b[0])).map(([m, c]) => t("ui.lesson_rate", { minutes: t("ui.minutes", { count: Number(m) }), price: dollars(c, lang.value) })).join(" · ");
   return (
     <main>

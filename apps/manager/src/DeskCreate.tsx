@@ -10,7 +10,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
-import { api, dollars, lang, serverNow, t } from "@kumi/ui";
+import { Skeleton, api, dollars, lang, serverNow, t } from "@kumi/ui";
 import { blank, freeUntil, partsOf, PlaceRow, startsOn, type NbCourt, type Place } from "./NewBooking.tsx";
 import { MATCH_GENDERS } from "./genders.ts";
 
@@ -55,7 +55,7 @@ export function DeskLesson({ loc, date, tz, clock, money, people, may, preview, 
     api<{ times: string[] }>(`/staff/lesson-times?coach_id=${f.coach}&date=${f.day}&minutes=${f.minutes}&location_id=${loc}`)
       .then((x) => { const ts = x.times.filter((s) => ms(s) > serverNow()); setTimes(ts); setF((was) => ({ ...was, start: ts.includes(was.start) ? was.start : ts[0] ?? "" })); }).catch(() => setTimes([]));
   }, [f.coach, f.minutes, f.day, loc]);
-  if (!coaches) return <p>{t("ui.loading")}</p>;
+  if (!coaches) return <Skeleton shape="rows" rows={3} />;
   if (!coaches.length) return <section><h2>{t("ui.dc_lesson_title")}</h2><p class="meta">{t("ui.dc_no_coaches")}</p><button type="button" class="link" onClick={onClose}>{t("ui.cancel")}</button></section>;
 
   const total = coach?.rates[String(f.minutes)] ?? 0, max = Math.min(4, coach?.max_players ?? 1), players = Math.min(f.players, max);
@@ -83,7 +83,7 @@ export function DeskLesson({ loc, date, tz, clock, money, people, may, preview, 
         <label>{t("ui.starts")}<select value={f.start} disabled={!times?.length} onChange={(e) => setF({ ...f, start: e.currentTarget.value })}>
           {(times ?? []).map((s) => <option value={s}>{clock(s)}</option>)}</select></label>
       </div>
-      {times === null ? <p class="meta">{t("ui.loading")}</p> : !times.length ? <p class="note">{t("ui.dc_no_times")}</p> : <p class="meta">{t("ui.dc_court_auto")}</p>}
+      {times === null ? <Skeleton shape="line" /> : !times.length ? <p class="note">{t("ui.dc_no_times")}</p> : <p class="meta">{t("ui.dc_court_auto")}</p>}
 
       <fieldset class="nb-pay"><legend>{t("ui.nb_payment")}</legend>
         <p class="dc-label" id="dc-players">{t("ui.dc_players_count")}</p>

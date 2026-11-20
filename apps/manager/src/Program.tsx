@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, amountStep, fromMajor, parseDollars, toMajor } from "@kumi/i18n/format";
-import { api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow, clubMoment } from "@kumi/ui";
+import { Skeleton, api, lang, mayDo, OtherLang, savedIn, t, shortTime, translationsOf, clubTime, serverNow, clubMoment } from "@kumi/ui";
 import { usePreview, dollars, ProgramCard, type ProgramCardData } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 import { PROGRAM_GENDERS } from "./genders.ts";
@@ -43,7 +43,7 @@ export function Program({ id }: { id: string }) {
   });
   const { preview, sheet } = usePreview(() => { setRemoving(null); setAdding(false); setPricing(null); setNaming(null); setEdit(null); setCancelling(null); setEnding(null); setMinimum(null); load(); });
   useEffect(() => { load(); }, [id]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const p = d.program, money = (c: number) => dollars(c, lang.value);
   const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   // Signed up per date: the roster is one date's (the one picked, else the next one still to come).

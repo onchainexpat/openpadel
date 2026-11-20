@@ -2,7 +2,7 @@
 // with its list of players (and who came). A lesson can be called off from here; its players get all their
 // money back. Their calendar link sits on top: a phone's calendar subscribes to it.
 import { useEffect, useState } from "preact/hooks";
-import { api, EmptyState, lang, t, usePreview, serverNow } from "@kumi/ui";
+import { Skeleton, api, EmptyState, lang, t, usePreview, serverNow } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Item = { kind: "lesson" | "session"; id: string; start: string; end: string; court?: string; players_names?: string | null; code?: string; name?: string; program_id?: string; booked?: number };
@@ -33,7 +33,7 @@ export function Schedule() {
   const load = () => api<{ time_zone: string; items: Item[] }>("/staff/my-schedule").then(setD);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, []);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: d.time_zone, ...o }).format(new Date(iso));
   const days = [...new Set(d.items.map((x) => fmt(x.start, { weekday: "long", day: "numeric", month: "long" })))];
   return (

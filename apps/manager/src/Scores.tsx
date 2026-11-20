@@ -2,7 +2,7 @@
 // aside, then the last two weeks' with what each side said.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, lang, t, usePreview } from "@kumi/ui";
 import { formatLocale, productName } from "@kumi/i18n/format";
 
 export type Score = { id: string; status: string; rated: boolean; played_at: string; court: string; time_zone: string; sets: { a: number; b: number }[]; a: string[]; b: string[];
@@ -13,7 +13,7 @@ export function Scores() {
   const load = () => api<Score[]>("/staff/scores").then(setRows);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { void load(); }, []);
-  if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!rows) return <Skeleton />;
   return (
     <main>
       <h1>{t("ui.nav_scores")}</h1>

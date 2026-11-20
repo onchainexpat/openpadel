@@ -1,7 +1,7 @@
 // A tournament or league: pair players, make the draw, put matches on the program's courts and times, enter
 // scores and walkovers, and see the tables. Members ask to move a match; staff move it here.
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, t, usePreview, clubMoment } from "@kumi/ui";
+import { Skeleton, api, clubTime, t, usePreview, clubMoment } from "@kumi/ui";
 
 type Fixture = { id: string; stage: string; group: number | null; round: number; a: string; b: string; a_id: string | null; b_id: string | null; status: string; court: string | null; starts_at: string | null; score: string; walkover: boolean; move_asked: string | null; game_id: string | null; game_status: string | null };
 type Row = { entry: string; name: string; played: number; won: number; lost: number; points: number; setsFor: number; setsAgainst: number; gamesFor: number; gamesAgainst: number };
@@ -18,7 +18,7 @@ export function Competition({ id }: { id: string }) {
   const load = () => api<Page>(`/staff/programs/${id}/competition`).then((x) => { setD(x); setFormat((f) => f || (x.kind === "league" ? "league" : "groups_knockout")); });
   const { preview, sheet } = usePreview(load);
   useEffect(() => { void load(); }, [id]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const parse = (s: string) => s.trim().split(/\s+/).filter(Boolean).map((x) => { const [a, b] = x.split(/[-:]/).map(Number); return { a: a ?? 0, b: b ?? 0 }; });
   const live = d.entries.filter((e) => e.status === "entered" || e.status === "invited");
   const when = (s: string) => clubTime(s, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });

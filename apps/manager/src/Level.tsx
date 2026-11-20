@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, clubTime } from "@kumi/ui";
+import { Skeleton, api, lang, t, clubTime } from "@kumi/ui";
 import { usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { ClaimAnswer, type StaffClaim } from "./LevelClaim.tsx";
@@ -44,7 +44,7 @@ export function Level({ id }: { id: string }) {
   const load = () => api<L>(`/staff/people/${id}/level`).then(setD);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [id, lang.value]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const when = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   return (
     <main>

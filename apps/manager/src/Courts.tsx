@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import type { Key } from "@kumi/i18n";
 import { formatLocale, weekOrder } from "@kumi/i18n/format";
-import { api, club, coversLocation, dollars, lang, lazyPage, mayCreate, mayDo, me, PluginCards, t, usePluginCards, usePreview, serverNow, useBackCloses } from "@kumi/ui";
+import { Icon, Skeleton, api, club, coversLocation, dollars, lang, lazyPage, mayCreate, mayDo, me, PluginCards, t, usePluginCards, usePreview, serverNow, useBackCloses } from "@kumi/ui";
 import { courtSlots, spanOfCourts } from "./open_times.ts";
 import { playtomicParts } from "./paid_line.ts";
 import { dayStats, kindOf, type Kind } from "./day_stats.ts";
@@ -121,7 +121,7 @@ export function Courts() {
     const id = setInterval(() => { load(); loadAlerts(); }, 60_000);
     return () => clearInterval(id);
   }, [g?.date, g?.today, loc]);
-  if (!g) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!g) return <Skeleton />;
 
   const clock = clockIn(g.time_zone);
   const today = g.date === g.today;
@@ -185,7 +185,7 @@ export function Courts() {
         </div>
         {view === "day" && <span class="occ-chip" role="status">{t("ui.occupancy_day", { percent: stats.percent })} · {t("count.bookings", { count: stats.bookings })}</span>}
         {choices.length > 0 && <button type="button" class="primary sched-create" aria-haspopup="dialog" onClick={() => { closePanel(); setCreating(true); }}>
-          <span aria-hidden="true">+</span> {t("ui.create")}</button>}
+          <Icon name="plus" />{t("ui.create")}</button>}
       </div>
       {forWho && <p class="note" role="status">{t("ui.booking_for", { name: forWho.display_name })} <button type="button" class="link" onClick={() => setForWho(null)}>{t("ui.booking_for_clear")}</button></p>}
       <p class="meta">{g.open ? t("ui.open_from_to", { from: clock(g.open.opens), to: clock(g.open.closes) }) : t("ui.closed_this_day")}</p>
@@ -485,7 +485,7 @@ function WeekView({ loc, date, courts, clock, stamp, onDay }: { loc: string; dat
         <tbody>{courts.map((c) => <tr>
           <th scope="row">{c.name}<span class="tg-sub">{courtKind(c.kind)}</span></th>
           {days.map((day) => { const g = grids[day], ct = g?.courts.find((x) => x.id === c.id);
-            return <td>{g === undefined ? <span class="meta">{t("ui.loading")}</span> : !ct ? null : !ct.open && !ct.items.length ? <span class="meta">{t("ui.closed")}</span>
+            return <td>{g === undefined ? <Skeleton shape="line" /> : !ct ? null : !ct.open && !ct.items.length ? <span class="meta">{t("ui.closed")}</span>
               : <ul class="plain week-items">{ct.items.filter((it) => it.kind !== "hold").map((it) => { const k = kindOf(it), tag = tagOf(it);
                 return <li><button type="button" class={`week-item k-${k}`} onClick={() => onDay(day, keyOf(it, c.id))}>
                   <span class="tg-time">{clock(it.start)} - {clock(it.end)}</span> <span>{labelOf(it) || tag || kindWords(k)}</span>
@@ -579,9 +579,9 @@ function CheckIn({ it, preview }: { it: Item; preview: Preview }) {
     <div class="card-form check-in">
       <h3>{t("ui.check_in_title")} <span class="meta">{t("count.checked_in_of", { count: n, total: all.length })}</span></h3>
       <ul class="plain">{all.map((a) => <li class="row"><span>{a.name || t("ui.player")}{a.guest ? ` · ${t("ui.guest")}` : ""}</span>
-        {may ? <button type="button" class={`small${a.in ? " checked" : ""}`} aria-pressed={a.in} onClick={() => mark([a.id], !a.in)}>{t(a.in ? "ui.checked_in" : "ui.check_in")}</button>
+        {may ? <button type="button" class={`small${a.in ? " checked" : ""}`} aria-pressed={a.in} onClick={() => mark([a.id], !a.in)}><Icon name={a.in ? "circle-check-big" : "user-check"} />{t(a.in ? "ui.checked_in" : "ui.check_in")}</button>
           : <span class="meta">{a.in ? t("ui.checked_in") : ""}</span>}</li>)}</ul>
-      {may && n < all.length && all.length > 1 && <p><button type="button" class="small primary" onClick={() => mark(undefined, true)}>{t("ui.check_in_everyone")}</button></p>}
+      {may && n < all.length && all.length > 1 && <p><button type="button" class="small primary" onClick={() => mark(undefined, true)}><Icon name="user-check" />{t("ui.check_in_everyone")}</button></p>}
     </div>
   );
 }

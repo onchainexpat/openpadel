@@ -5,7 +5,7 @@ import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, capFor, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { COMING_FROM, comingFrom } from "@kumi/i18n/presets";
 import { AMENITIES } from "@kumi/i18n/amenities";
-import { api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, RunsOn, savedIn, t, translationsOf, usePreview, type Club, applyBrand, applyTitle } from "@kumi/ui";
+import { Icon, Skeleton, api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, RunsOn, savedIn, t, translationsOf, usePreview, type Club, applyBrand, applyTitle } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
@@ -40,7 +40,7 @@ export function Settings() {
   };
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, []);
-  if (!s) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!s) return <Skeleton />;
   // Send a change only if there is one.
   const send: Preview = async (action, input) => {
     const { court_id, location_id, ...rest } = input as Record<string, unknown>;
@@ -76,7 +76,7 @@ function TextingCard({ x, tz }: { x: Texting; tz: string }) {
   const boss = me.value?.roles.some((r) => r.key === "owner" || r.key === "manager");
   return (
     <section class="card card-form">
-      <h2>{t("ui.texting_title")}</h2>
+      <h2 class="with-icon"><Icon name="message-square-text" />{t("ui.texting_title")}</h2>
       <p class="meta">{t(x.on ? "ui.texting_on" : "ui.texting_off")}</p>
       {x.said.map((line) => <p class="meta">{line}</p>)}
       {!x.on && <p class="meta">{t("ui.texting_how")}</p>}
@@ -100,7 +100,7 @@ function SignInCard({ rule, atSignIn, send }: { rule: ClubRow["two_factor"]; atS
   const owner = Boolean(me.value?.roles.some((r) => r.key === "owner"));
   return (
     <section class="card card-form">
-      <h2>{t("ui.sign_in_settings")}</h2>
+      <h2 class="with-icon"><Icon name="lock-keyhole" />{t("ui.sign_in_settings")}</h2>
       <label>{t("ui.two_factor_rule")}<select value={v} onChange={(e) => setV(e.currentTarget.value as ClubRow["two_factor"])}>
         <option value="owner_manager">{t("ui.two_factor_owner_manager")}</option>
         <option value="all_staff">{t("ui.two_factor_all_staff")}</option>
@@ -111,13 +111,13 @@ function SignInCard({ rule, atSignIn, send }: { rule: ClubRow["two_factor"]; atS
       {owner && <label class="check"><input type="checkbox" checked={on} onChange={(e) => setOn(e.currentTarget.checked)} /> {t("ui.second_step_sign_in")}</label>}
       {owner && <p class="meta">{t("ui.second_step_sign_in_hint")}</p>}
       <button class="primary" disabled={(v === rule || v === "off") && on === atSignIn} onClick={() => send("club.update", { ...(v !== rule && v !== "off" ? { two_factor: v } : {}), ...(on !== atSignIn ? { second_step_sign_in: on } : {}) })}>{t("ui.preview")}</button>
-      <p><a href="/roles">{t("ui.roles_link")}</a></p>
+      <p><a href="/roles" class="with-icon"><Icon name="shield-user" />{t("ui.roles_link")}</a></p>
       {/* The guided move-in (MoveSteps.tsx): the owner and managers. */}
-      {(me.value?.can ? mayDo("move.step") : me.value?.roles.some((r) => r.key === "owner" || r.key === "manager")) && <p><a href="/settings/moving-in">{t("ui.moving_link")}</a> <span class="meta">{t("ui.moving_settings_help")}</span></p>}
-      {me.value?.roles.some((r) => r.key === "owner") && <p><a href="/vault">{t("ui.vault_link")}</a></p>}
-      {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/support">{t("ui.support_link")}</a></p>}
+      {(me.value?.can ? mayDo("move.step") : me.value?.roles.some((r) => r.key === "owner" || r.key === "manager")) && <p><a href="/settings/moving-in" class="with-icon"><Icon name="truck" />{t("ui.moving_link")}</a> <span class="meta">{t("ui.moving_settings_help")}</span></p>}
+      {me.value?.roles.some((r) => r.key === "owner") && <p><a href="/vault" class="with-icon"><Icon name="key-round" />{t("ui.vault_link")}</a></p>}
+      {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/support" class="with-icon"><Icon name="life-buoy" />{t("ui.support_link")}</a></p>}
       {/* Club agents, people's assistants and webhooks (Agents.tsx): the owner and managers. */}
-      {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/connectors">{t("ui.agents_link")}</a></p>}
+      {!me.value?.support && me.value?.roles.some((r) => r.key === "owner" || r.key === "manager") && <p><a href="/connectors" class="with-icon"><Icon name="bot" />{t("ui.agents_link")}</a></p>}
     </section>
   );
 }
@@ -127,7 +127,7 @@ function WaiverForm({ w, send }: { w: S["waiver"]; send: Preview }) {
   const [body, setBody] = useState(w?.body ?? ""), bodyTr0 = savedIn(w?.translations, "body"), [bodyTr, setBodyTr] = useState(bodyTr0);
   return (
     <section class="card card-form">
-      <h2>{t("ui.waiver_settings")}</h2>
+      <h2 class="with-icon"><Icon name="file-signature" />{t("ui.waiver_settings")}</h2>
       <p class="meta">{w ? t("ui.waiver_version", { version: w.version_no }) : t("ui.waiver_off")}</p>
       <p class="meta">{t("ui.waiver_settings_hint")}</p>
       <textarea rows={8} maxLength={20000} value={body} aria-label={t("ui.waiver_settings")} onInput={(e) => setBody(e.currentTarget.value)} />
@@ -187,7 +187,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
   const toggleLang = (l: string, on: boolean) => set("languages", on ? [...new Set([...f.languages, l])].sort() : f.languages.filter((x) => x !== l));
   return (
     <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("club.update", { ...links(diff(start, f)), ...(aboutTr.trim() !== aboutTr0 ? { translations: translationsOf({ about: aboutTr }) } : {}) }); }}>
-      <h2>{t("ui.club_details")}</h2>
+      <h2 class="with-icon"><Icon name="building-2" />{t("ui.club_details")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => set("name", e.currentTarget.value)} /></label>
       <label>{t("ui.legal_name")}<input value={f.legal_name} onInput={(e) => set("legal_name", e.currentTarget.value)} /></label>
       <label>{t("ui.club_phone")}<input type="tel" inputMode="tel" autocomplete="tel" maxLength={40} value={f.phone} aria-describedby="contact-help" onInput={(e) => set("phone", e.currentTarget.value)} /></label>
@@ -259,7 +259,7 @@ function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview
   return (
     <section class="card">
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("location.update", { location_id: l.id, ...diff(start, f) }); }}>
-        <h2>{l.name}</h2>
+        <h2 class="with-icon"><Icon name="map-pin" />{l.name}</h2>
         <label>{t("ui.name")}<input required value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
         <label>{t("ui.address")}<input value={f.address} onInput={(e) => setF({ ...f, address: e.currentTarget.value })} /></label>
         <div class="court-row"><label>{t("ui.postal_code")}<input maxLength={16} value={f.postal_code} onInput={(e) => setF({ ...f, postal_code: e.currentTarget.value })} /></label>
@@ -371,7 +371,7 @@ function BookingRules({ p, send }: { p: Policy; send: Preview }) {
     .filter((k) => JSON.stringify(f[k]) !== JSON.stringify(p[k])).map((k) => [k, f[k]]));
   return (
     <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("policy.set", changed); }}>
-      <h2>{t("ui.booking_rules")}</h2>
+      <h2 class="with-icon"><Icon name="sliders-horizontal" />{t("ui.booking_rules")}</h2>
       <p class="meta">{t("ui.booking_rules_hint", { version: p.version_no })}</p>
       <label>{t("ui.days_ahead")}<input type="number" min={1} max={365} value={f.days_ahead} onInput={num("days_ahead")} /></label>
       <label>{t("ui.max_active")}<input type="number" min={1} max={50} value={f.max_active} onInput={num("max_active")} /></label>
@@ -438,7 +438,7 @@ function NewLocation({ tz, send }: { tz: string; send: Preview }) {
   if (!open) return <button onClick={() => setOpen(true)}>{t("ui.add_location")}</button>;
   return (
     <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("location.create", { name: f.name, time_zone: f.time_zone, address: f.address || undefined, postal_code: f.postal_code || undefined, region: f.region || undefined, country: f.country || undefined }); }}>
-      <h2>{t("ui.add_location")}</h2>
+      <h2 class="with-icon"><Icon name="map-pin-plus" />{t("ui.add_location")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
       <label>{t("ui.address")}<input value={f.address} onInput={(e) => setF({ ...f, address: e.currentTarget.value })} /></label>
       <div class="court-row"><label>{t("ui.postal_code")}<input maxLength={16} value={f.postal_code} onInput={(e) => setF({ ...f, postal_code: e.currentTarget.value })} /></label>
@@ -475,7 +475,7 @@ function PassProducts({ preview }: { preview: (action: string, input: unknown) =
   const kinds = ["clinic", "course", "league", "tournament", "social"];
   const toggle = (x: Product) => preview("pass_product.set", { product_id: x.id, name: x.name, covers: x.covers, program_kinds: x.program_kinds ?? undefined, max_minutes: x.max_minutes, price_cents: x.price_cents, uses: x.uses, valid_days: x.valid_days, on_sale: !x.on_sale });
   return <section class="card">
-    <h2>{t("ui.passes_setting")}</h2>
+    <h2 class="with-icon"><Icon name="ticket" />{t("ui.passes_setting")}</h2>
     {list.length > 0 && <ul class="plain">{list.map((x) => <li class="row" key={x.id}>
       <span>{x.name} · {t("ui.pass_uses_left", { left: String(x.uses), uses: String(x.uses) })} · {dollars(x.price_cents, lang.value)}</span>
       <button class="small" onClick={() => void toggle(x)}>{x.on_sale ? t("ui.pass_off_sale") : t("ui.pass_on_sale")}</button>
@@ -509,7 +509,7 @@ function PromoCodes({ preview }: { preview: (action: string, input: unknown) => 
   const again = (x: Code, active: boolean) => preview("promo_code.set", { promo_code_id: x.id, code: x.code, kind: x.kind, percent: x.percent, amount_cents: x.amount_cents, applies_to: x.applies_to,
     starts_at: x.starts_at, ends_at: x.ends_at, max_uses: x.max_uses, max_per_person: x.max_per_person, min_spend_cents: x.min_spend_cents, active });
   return <section class="card">
-    <h2>{t("ui.promos_setting")}</h2>
+    <h2 class="with-icon"><Icon name="ticket-percent" />{t("ui.promos_setting")}</h2>
     {list.length > 0 && <ul class="plain">{list.map((x) => <li class="row" key={x.id}>
       <span><strong>{x.code}</strong> · {x.kind === "percent" ? `${x.percent}%` : dollars(x.amount_cents ?? 0, lang.value)} · {t("ui.promo_used", { used: String(x.used) })}</span>
       <button class="small" onClick={() => void again(x, !x.active)}>{x.active ? t("ui.promo_turn_off") : t("ui.promo_turn_on")}</button>

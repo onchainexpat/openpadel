@@ -3,7 +3,7 @@
 // club's second-yes rule: the changes that wait for two different people's yes, and the amount over which any change
 // by staff does too (role.second_yes).
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, dollars, lang, t, usePreview } from "@kumi/ui";
 import { fromMajor, toMajor } from "@kumi/i18n/format";
 
 type Role = { key: string; name: string; system: boolean; based_on: string | null; holders: number };
@@ -29,7 +29,7 @@ export function Roles() {
     setEditing({ key: copy || !r ? undefined : r.key, name: copy || !r ? "" : r.name, based_on: copy && r ? r.key : undefined,
       choices: Object.fromEntries(grants.map((g) => [g.action, toChoice(g)])) });
   };
-  if (!roles) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!roles) return <Skeleton />;
   if (rule && second) {
     const toggle = (name: string, on: boolean) => setRule({ ...rule, actions: on ? [...rule.actions, name] : rule.actions.filter((a) => a !== name) });
     const submit = (e: Event) => {

@@ -3,7 +3,7 @@
 // means whoever matches when it's used; the count beside the filters says who that is now.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, lang, mayDo, t, usePreview, clubTime, serverNow, clubMoment } from "@kumi/ui";
+import { Skeleton, api, lang, mayDo, t, usePreview, clubTime, serverNow, clubMoment } from "@kumi/ui";
 
 type Filters = { membership?: string; plan_ids?: string[]; level_min?: number; level_max?: number; tag_ids?: string[]; played_within_days?: number; not_played_days?: number;
   age?: string; lang?: string; program_id?: string; on_date?: string; joined_from?: string; joined_to?: string };
@@ -95,7 +95,7 @@ export function Messages() {
       <h1>{t("ui.messages_title")}</h1>
       <Tabs on="/messages" />
       {sheet}
-      {!rows ? <p>{t("ui.loading")}</p> : !rows.length ? <section class="card"><p class="meta">{t("ui.no_messages")}</p></section> : rows.map((b) => {
+      {!rows ? <Skeleton shape="card" /> : !rows.length ? <section class="card"><p class="meta">{t("ui.no_messages")}</p></section> : rows.map((b) => {
         const email = b.counts.email ?? {}, waiting = email.waiting ?? 0;
         return <section class="card" key={b.id}>
           <p><strong>{b.subject}</strong> <span class={b.purpose === "service" ? "badge warn" : "badge"}>{t(b.purpose === "club_news" ? "ui.badge_club_news" : "ui.badge_service")}</span></p>
@@ -123,7 +123,7 @@ export function Compose() {
   const [later, setLater] = useState(false), [at, setAt] = useState("");
   const { preview, sheet } = usePreview(() => route("/messages"));
   if (!mayDo("broadcast.send")) return <main><h1>{t("ui.new_message")}</h1><Tabs on="/messages/new" /><p class="card">{t("error.forbidden_reason", { reason: t("reason.whole_club_messages") })}</p></main>;
-  if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!o) return <Skeleton />;
   const use = (id: string) => { const x = o.templates.find((y) => y.id === id); if (x) setW({ subject_en: x.subject_en ?? "", body_en: x.body_en ?? "", subject_es: x.subject_es ?? "", body_es: x.body_es ?? "" }); };
   const langs = LANGS.filter(([l]) => o.languages.includes(l));
   const send = (e: Event) => {
@@ -173,7 +173,7 @@ export function Groups() {
   const load = () => { void reload(); api<typeof list>("/staff/segments").then((x) => { setList(x); setEditing(null); setRenaming(null); }); };
   const { preview, sheet } = usePreview(() => { setName(""); setTag(""); setFilters({}); load(); });
   useEffect(() => { load(); }, [lang.value]);
-  if (!o || !list) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!o || !list) return <Skeleton />;
   return (
     <main>
       <h1>{t("ui.groups_title")}</h1>
@@ -232,7 +232,7 @@ export function Templates() {
   const [o, reload] = useOptions();
   const [editing, setEditing] = useState<string | null>(null), [key, setKey] = useState(0);
   const { preview, sheet } = usePreview(() => { setEditing(null); setKey((k) => k + 1); void reload(); });
-  if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!o) return <Skeleton />;
   const langs = LANGS.filter(([l]) => o.languages.includes(l));
   const form = (id: string | null, start: { name: string } & Words) => <TemplateForm key={`${id ?? "new"}-${key}`} start={start} langs={langs}
     onSend={(name, w) => preview(id ? "template.update" : "template.save", { ...(id ? { template_id: id } : {}), name, ...wordsInput(w) })} />;

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { AccountData, api, club, PluginCards, usePluginCards, dollars, emailedNote, lang, coversLocation, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
+import { Icon, Skeleton, AccountData, api, club, PluginCards, usePluginCards, dollars, emailedNote, lang, coversLocation, mayDo, me, ReceiptSheet, t, usePreview, type ReceiptView, clubTime, serverNow } from "@kumi/ui";
 import { WeeklyCourts, type WeeklyCourt } from "@kumi/ui/weekly";
 import { GiveMembership, MembershipButtons, MembershipDesk, membershipLine, type Plan } from "./Memberships.tsx";
 import { amountStep, capFor, fromMajor, plainAmount, toMajor } from "@kumi/i18n/format";
@@ -86,7 +86,7 @@ export function Person({ id }: { id: string }) {
   const loaded = Boolean(p);
   useEffect(() => { if (loaded && location.hash.startsWith("#booking-")) document.getElementById(location.hash.slice(1))?.scrollIntoView({ block: "center" }); }, [loaded, id, hash]);
   const setTab = (k: string) => { setTabNow(k as TabKey); history.replaceState(history.state, "", `${location.pathname}${location.search}#${k}`); };
-  if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!p) return <Skeleton />;
 
   const date = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   const news = p.consent.find((c) => c.channel === "email" && c.purpose === "club_news"), texts = p.consent.find((c) => c.channel === "sms" && c.purpose === "account");
@@ -150,7 +150,7 @@ export function Person({ id }: { id: string }) {
         {!p.junior && p.family_role !== "member" && mayDo("household.add_junior") && <form class="card-form" onSubmit={(e) => { e.preventDefault(); preview("household.add_junior", { person_id: p.id, display_name: jName, birth_year: Number(jYear) }); }}>
           <label>{t("ui.junior_name")}<input required maxLength={80} value={jName} onInput={(e) => setJName(e.currentTarget.value)} /></label>
           <label>{t("ui.birth_year")}<input type="number" required inputMode="numeric" value={jYear} onInput={(e) => setJYear(e.currentTarget.value)} /></label>
-          <button>{t("ui.add_junior")}</button>
+          <button><Icon name="plus" />{t("ui.add_junior")}</button>
         </form>}
       </section>}
 
@@ -319,7 +319,7 @@ function PersonLevel({ id }: { id: string }) {
   return (
     <section class="card">
       <h2>{t("ui.level")}</h2>
-      {l === null ? <p>{t("ui.loading")}</p> : l && l.rating ? <p><strong class="big-level">{l.rating.level}</strong>{" "}
+      {l === null ? <Skeleton shape="line" /> : l && l.rating ? <p><strong class="big-level">{l.rating.level}</strong>{" "}
         <span class="meta">{[l.rating.provisional ? t("ui.provisional") : "", t("count.rated_games", { count: l.rating.rated_games })].filter(Boolean).join(" · ")}</span></p>
         : <p class="meta">{t("ui.person_no_level")}</p>}
       <p><a href={`/people/${id}/level`}>{t("ui.see_level")}</a></p>

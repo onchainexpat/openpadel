@@ -2,7 +2,7 @@
 // is made and its passphrase shown, once, beside the download. The passphrase isn't kept anywhere. Beside it, the
 // owner's "we're moving" (club.moved): turned on before the download, only the new server talks to members.
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, club, needsStep, t, type Club, useBackCloses, useStepUp } from "@kumi/ui";
+import { Icon, api, ApiError, club, needsStep, t, type Club, useBackCloses, useStepUp } from "@kumi/ui";
 
 type Made = { passphrase: string; name: string; bytes: number; download: string; minutes: number };
 
@@ -50,7 +50,7 @@ export function ClubExport() {
   useEffect(() => { if (location.hash === "#download-everything") here.current?.scrollIntoView(); }, []);
   return (
     <section class="card" id="download-everything" ref={here}>
-      <h2>{t("ui.export_title")}</h2>
+      <h2 class="with-icon"><Icon name="download" />{t("ui.export_title")}</h2>
       <p class="meta">{t("ui.export_help")}</p>
       {!made && <button disabled={busy} onClick={ask}>{t("ui.export_start")}</button>}
       {pending && <div class="sheet" role="dialog" aria-modal="true"><p>{pending.summary}</p>

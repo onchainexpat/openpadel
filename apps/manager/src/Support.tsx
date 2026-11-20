@@ -3,7 +3,7 @@
 // owner) and anyone here can end it early, through the preview like every change.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, lang, loadMe, t, usePreview, clubTime } from "@kumi/ui";
+import { Skeleton, api, lang, loadMe, t, usePreview, clubTime } from "@kumi/ui";
 
 type Level = "view" | "manager";
 type Grant = { id: string; name: string; email: string; reason: string; level: Level; starts_at: string; ends_at: string; ended_at: string | null; first_seen_at: string | null;
@@ -20,7 +20,7 @@ export function Support() {
   // After a change here the banner at the top (support under way) is read again too, so an ended one goes at once.
   const { preview, sheet } = usePreview(() => { void load(); void loadMe(); });
   useEffect(() => { load(); }, [lang.value]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const now = d.grants.filter((g) => g.active), before = d.grants.filter((g) => !g.active);
   return (
     <main>
@@ -68,7 +68,7 @@ function GrantRow({ g, end }: { g: Grant; end?: () => void }) {
         <p class="meta">{[levelText(g.level), status, g.first_seen_at ? null : t("ui.support_not_used"), t("ui.support_reads", { count: g.reads }), t("ui.support_changes", { count: g.changes })].filter(Boolean).join(" · ")}</p>
         <p class="meta">{t("ui.support_reason_line", { reason: g.reason })}{g.granted_by && <> · {t("ui.support_given_by", { name: g.granted_by })}</>}</p>
         <details onToggle={open}><summary>{t("ui.support_activity")}</summary>
-          {!a ? <p class="meta">{t("ui.loading")}</p> : <>
+          {!a ? <Skeleton shape="rows" rows={2} /> : <>
             <h3>{t("ui.support_changed")}</h3>
             <ul class="plain">{a.changes.map((c) => <li class="meta">{when(c.at)} · {c.summary ?? c.action} · {t(`ui.status_${c.status}` as Key)}</li>)}</ul>
             <h3>{t("ui.support_opened")}</h3>

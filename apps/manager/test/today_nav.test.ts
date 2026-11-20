@@ -12,8 +12,8 @@ const src = (f: string) => readFileSync(join(import.meta.dirname, "../src", f), 
 
 test("Today and Approvals are menu links behind their checks, with counts from /staff/counts", () => {
   const app = src("App.tsx");
-  assert.ok(app.includes('today: link(!coachOnly, "/today", label("ui.nav_today"), on("/today") ?? home("today"), n.today)'));
-  assert.ok(app.includes('approvals: link(!coachOnly || n.approvals > 0, "/approvals", label("ui.nav_approvals"), on("/approvals"), n.approvals)'));
+  assert.ok(app.includes('today: link(!coachOnly, "today", "/today", label("ui.nav_today"), on("/today") ?? home("today"), n.today)'));
+  assert.ok(app.includes('approvals: link(!coachOnly || n.approvals > 0, "approvals", "/approvals", label("ui.nav_approvals"), on("/approvals"), n.approvals)'));
   assert.ok(app.includes('api<Counts>("/staff/counts")'));
   assert.ok(!app.includes("/staff/questions/count"), "the Questions badge reads the same counts, not a read of its own");
   // Loaded when opened (or fetched while the person looks at their first page), never in the first screen.

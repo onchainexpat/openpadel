@@ -47,5 +47,5 @@ test("Undo still previews first, then confirms; the detail pane opens beside the
 test("Roles is in the menu in both presets, in English and Spanish", () => {
   assert.equal(en["ui.nav_roles"], "Roles and permissions");
   assert.equal(es["ui.nav_roles"], "Roles y permisos");
-  assert.match(src("App.tsx"), /roles: link\(show\("settings"\) && mayCreate\("role\.create"\) && !me\.value\?\.support, "\/roles", label\("ui\.nav_roles"\)\)/);
+  assert.match(src("App.tsx"), /roles: link\(show\("settings"\) && mayCreate\("role\.create"\) && !me\.value\?\.support, "roles", "\/roles", label\("ui\.nav_roles"\)\)/);
 });

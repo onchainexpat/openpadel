@@ -5,7 +5,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { formatLocale, weekOrder } from "@kumi/i18n/format";
-import { api, lang, t } from "@kumi/ui";
+import { Skeleton, api, lang, t } from "@kumi/ui";
 
 type Program = { name: string; kind: string; start: string };
 type Day = { date: string; open: boolean; percent: number; bookings: number; programs: Program[] };
@@ -24,7 +24,7 @@ export function MonthView({ loc, date, stamp, onDay }: { loc: string; date: stri
     return () => { live = false; };
   }, [loc, month, stamp]);
   if (failed) return <p class="error" role="alert">{t("ui.month_failed")}</p>;
-  if (!m) return <p class="meta">{t("ui.loading")}</p>;
+  if (!m) return <Skeleton shape="rows" rows={5} />;
 
   const order = weekOrder(), locale = formatLocale(lang.value);
   const lead = (new Date(`${m.month}-01T12:00:00Z`).getUTCDay() - order[0]! + 7) % 7;

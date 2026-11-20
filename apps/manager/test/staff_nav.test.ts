@@ -17,7 +17,7 @@ test("each menu link is shown only to the roles that read its area, as before", 
     ["messages", "/messages"], ['show("members") && club.value?.players_chat', "/chats"], ["me.value?.playtomic", "/playtomic"], ['show("money") || coachSide', "/reports"],
     ["changes", "/usage"], ["changes && !me.value?.support", "/connectors"], ['show("settings") && mayCreate("role.create") && !me.value?.support', "/roles"], ["changes", "/changes"], ['show("settings")', "/settings"], ["true", "/profile"],
   ];
-  for (const [gate, href] of gates) assert.ok(app.includes(`: link(${gate}, "${href}"`), `${href} behind ${gate}`);
+  for (const [gate, href] of gates) assert.match(app, new RegExp(`: link\\(${gate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, "[a-z]+", "${href}"`), `${href} behind ${gate}`);
   assert.match(app, /const messages = desk \|\| Boolean\(areas\?\.includes\("messages"\)\);/);
   assert.match(app, /questions: messages && <li><QuestionsLink /, "Questions, with its badge, for the desk and message roles only");
   assert.match(app, /<li><InboxLink current=/);

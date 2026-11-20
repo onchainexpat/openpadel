@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, clubMoment, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, clubMoment, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { around, MOVE_STEPS, stepMarks, type Step } from "./move_steps.ts";
 
@@ -37,7 +37,7 @@ export function MoveSteps() {
   const allowed = me.value?.can ? mayDo("move.step") : (me.value?.roles ?? []).some((r) => r.key === "owner" || r.key === "manager");
   if (!allowed) return <main class="card"><p>{t("ui.not_for_your_role")}</p></main>;
   if (failed) return <main class="card"><p class="error" role="alert">{failed}</p></main>;
-  if (!s) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!s) return <Skeleton />;
   const fmt = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   const shown = view ?? s.step, at = MOVE_STEPS.indexOf(s.step), from = t(`move.from_${s.source ?? "spreadsheet"}` as Key);
   const go = (step: Step) => preview("move.step", { step });

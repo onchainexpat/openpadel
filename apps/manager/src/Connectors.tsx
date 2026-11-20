@@ -6,7 +6,7 @@
 // the club's agent: the page gives the words to give it, opens Ask openPadel, and shows the catalog in words. Never a
 // secret: keys read "added, ends in 4F2A" or missing. For the owner and managers.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, lang, t, usePreview } from "@kumi/ui";
 import { Agents } from "./Agents.tsx";
 import { Catalog, mono, PluginConnector, STATUS_WORDS, type ConnectorStatus, type Plugin } from "./Plugins.tsx";
 
@@ -44,7 +44,7 @@ export function Connectors() {
         {t(back.ok ? "ui.connectors_connected" : "ui.connectors_not_connected", { plugin: back.plugin })}{" "}
         <button class="small" onClick={() => setBack(null)}>{t("ui.close")}</button></p>}
       {failed && <p class="error" role="alert">{t("ui.connectors_failed")}</p>}
-      {!v && !failed && <p>{t("ui.loading")}</p>}
+      {!v && !failed && <Skeleton shape="card" />}
       {v && <>
         <div class="connector-summary">{order.filter((s) => v.summary[s]).map((s) => <span class={`pill pill-${s === "on" ? "yes" : s}`}>{t(`count.connectors_${s}`, { count: v.summary[s] })}</span>)}</div>
         <p class="connector-actions">

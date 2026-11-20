@@ -3,7 +3,7 @@
 // keeping the level (it leaves the queue) or changing it with a reason (players who asked are told either way); a change
 // staff made can be undone from the Changes tab, as from Changes. Beside it, how levels work here.
 import { useEffect, useState } from "preact/hooks";
-import { api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
+import { Skeleton, api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { Pager, Tabs } from "./lists.tsx";
 import { ScoreCard, type Score } from "./Scores.tsx";
@@ -83,7 +83,7 @@ function AllPlayers() {
   return (
     <section class="card">
       <label>{t("ui.levels_search")}<input type="search" value={q} maxLength={80} onInput={(e) => { setQ(e.currentTarget.value); setPage(1); }} /></label>
-      {!d ? <p>{t("ui.loading")}</p> : !d.rows.length ? <p class="meta">{t("ui.levels_no_players")}</p> : <>
+      {!d ? <Skeleton shape="rows" rows={6} /> : !d.rows.length ? <p class="meta">{t("ui.levels_no_players")}</p> : <>
         <ul class="plain">{d.rows.map((p) => <li class="row" key={p.person_id}><a href={`/people/${p.person_id}/level`}>{p.name}</a>
           <span class="meta"><strong>{p.level}</strong>{p.provisional ? ` · ${t("ui.person_chip_provisional")}` : ""}{p.floor ? ` · ${t("ui.floor", { floor: p.floor })}` : ""} · {t("count.rated_games", { count: p.rated_games })}</span></li>)}</ul>
         <Pager page={d.page} pages={d.pages} go={setPage} shown={d.rows.length} total={d.total} per={d.per_page} />
@@ -137,7 +137,7 @@ export function Levels() {
   const [tab, setTabNow] = useState<TabKey>(() => tabOfHash());
   useEffect(() => { const on = () => setTabNow(tabOfHash()); addEventListener("hashchange", on); return () => removeEventListener("hashchange", on); }, []);
   const setTab = (k: string) => { setTabNow(k as TabKey); history.replaceState(history.state, "", `${location.pathname}${location.search}#${k}`); };
-  if (!q) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!q) return <Skeleton />;
   const day = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   const items = queueItems(q);
   const areas = me.value?.areas ?? null, programs = areas ? areas.includes("programs") : true;
@@ -160,9 +160,9 @@ export function Levels() {
             {tab === "review" && (!items.length ? <p class="card meta">{t("ui.queue_empty")}</p>
               : <ul class="plain">{items.map((x) => <Answer key={x.key} item={x} preview={preview} day={day} />)}</ul>)}
             {tab === "players" && <AllPlayers />}
-            {tab === "changes" && <section class="card">{!changes ? <p>{t("ui.loading")}</p> : !changes.length ? <p class="meta">{t("ui.level_changes_none")}</p>
+            {tab === "changes" && <section class="card">{!changes ? <Skeleton shape="rows" /> : !changes.length ? <p class="meta">{t("ui.level_changes_none")}</p>
               : <ul class="plain">{changes.map((c) => <ChangeRow key={c.id} c={c} preview={preview} day={day} />)}</ul>}</section>}
-            {tab === "disputes" && (!disputes ? <p class="card">{t("ui.loading")}</p> : !disputes.length ? <p class="card meta">{t("ui.levels_no_disputes")}</p>
+            {tab === "disputes" && (!disputes ? <Skeleton shape="card" /> : !disputes.length ? <p class="card meta">{t("ui.levels_no_disputes")}</p>
               : <>{disputes.map((s) => <ScoreCard key={s.id} s={s} send={preview} />)}<p class="meta">{t("ui.levels_disputes_help")}</p></>)}
           </div>
         </div>

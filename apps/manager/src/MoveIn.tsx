@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 
 type Benefit = { name: string; people: number };
 type Upload = { id: string; sha256: string; file_name: string | null; at: string; rows: number; uploaded_by: string | null; erased: number; wallet_columns: { ref: string; name: string }[]; problems: { line: number; text: string }[]; benefits: Benefit[] };
@@ -19,7 +19,7 @@ export function MoveIn() {
   // Built-in roles: the owner and managers; a club's own roles, by what they may do.
   const allowed = me.value?.can ? mayDo("credit.bring_in") || mayDo("membership.bring_in") : (me.value?.roles ?? []).some((r) => r.key === "owner" || r.key === "manager");
   if (!allowed) return <main class="card"><p>{t("ui.not_for_your_role")}</p></main>;
-  if (!s) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!s) return <Skeleton />;
   const fmt = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   const pick = async (e: Event) => {
     const f = (e.currentTarget as HTMLInputElement).files?.[0];

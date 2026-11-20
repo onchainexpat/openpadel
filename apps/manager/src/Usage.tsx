@@ -2,7 +2,7 @@
 // owner sets and what's allowed over it, and the months before. Owners and managers see it; the owner changes the
 // cap (a manager's change goes to the owner to approve), through the preview like everything else.
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, lang, me, t, usePreview, clubTime } from "@kumi/ui";
+import { Skeleton, api, dollars, lang, me, t, usePreview, clubTime } from "@kumi/ui";
 import { fromMajor, plainAmount, formatLocale, money, clubFormat } from "@kumi/i18n/format";
 
 type Kind = "ai_decisions" | "ai_drafts" | "ai_assistant" | "texts" | "email";
@@ -16,9 +16,9 @@ export function Usage() {
   const load = () => api<{ usage: U | null }>("/staff/usage").then(setD);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const u = d.usage;
-  if (!u) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!u) return <Skeleton />;
   const usd = (cents: number) => money(cents, lang.value === "es" ? "es" : "en", "USD"), loc = formatLocale(lang.value);   // the meter is in US dollars
   const monthName = (m: string) => new Intl.DateTimeFormat(loc, { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${m}T12:00:00Z`));
   const day = clubTime(u.resets, { day: "numeric", month: "long" });

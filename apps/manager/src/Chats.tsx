@@ -3,7 +3,7 @@
 // again), stop its author posting for a while, or let them post again. Each is in Changes.
 import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
-import { ApiError, api, clubTime, lang, shortTime, t, usePreview } from "@kumi/ui";
+import { Skeleton, ApiError, api, clubTime, lang, shortTime, t, usePreview } from "@kumi/ui";
 
 type Row = { id: string; kind: "booking" | "session"; ref_id: string; title: string; starts_at: string; last_at: string; messages: number; reports: number };
 type Message = { id: string; person_id: string; author: string; at: string; edited: boolean; state: "shown" | "removed" | "hidden"; body: string | null;
@@ -16,7 +16,7 @@ export function Chats() {
   const [rows, setRows] = useState<Row[] | null>(null), [error, setError] = useState<string | null>(null);
   useEffect(() => { api<Row[]>("/staff/chats").then(setRows).catch((e) => setError(e instanceof ApiError ? e.message : String(e))); }, [lang.value]);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
-  if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!rows) return <Skeleton />;
   return (
     <main>
       <h1>{t("ui.staff_chats_title")}</h1>
@@ -38,7 +38,7 @@ export function ChatPage() {
   const { preview, sheet } = usePreview(() => { void load(); });
   useEffect(() => { void load(); }, [params.id, lang.value]);
   if (error) return <main class="card"><p class="error">{error}</p><p><a href="/chats">{t("ui.chat_back")}</a></p></main>;
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   return (
     <main>
       <p><a href="/chats">{t("ui.chat_back")}</a></p>

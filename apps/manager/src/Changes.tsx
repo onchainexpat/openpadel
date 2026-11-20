@@ -4,7 +4,7 @@
 // what it charged, exactly what it changed, its reference, and Undo, or why it can't be undone. Undo previews first.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, dollars, lang, loadMe, needsStep, t, clubTime, useBackCloses, useStepUp } from "@kumi/ui";
+import { Skeleton, api, ApiError, dollars, lang, loadMe, needsStep, t, clubTime, useBackCloses, useStepUp } from "@kumi/ui";
 import { SidePanel } from "./Courts.tsx";
 import { viaWords } from "./made_via.ts";
 
@@ -89,7 +89,7 @@ export function Changes() {
   );
 
   if (error && !rows) return <main class="card"><p class="error" role="alert">{error}</p></main>;
-  if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!rows) return <Skeleton />;
   const waiting = rows.filter((r) => r.can_answer), rest = rows.filter((r) => !r.can_answer);
   const row = (r: Change) => (
     <li key={r.id} class="card">

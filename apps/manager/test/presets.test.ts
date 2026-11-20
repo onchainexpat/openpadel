@@ -64,7 +64,7 @@ test("the staff app's role checks don't read the preset: menu links keep their c
   const app = src("App.tsx");
   const nav = app.slice(app.indexOf("function StaffNav"), app.indexOf("/** The page's frame"));
   // Each link's check is the first thing it's given; the preset only picks the order (`preset().menu`) and words (label).
-  for (const m of nav.matchAll(/link\(([^,]+(?:,[^,"]+)*), "\//g)) assert.doesNotMatch(m[1]!, /preset|label/, m[0]);
+  for (const m of nav.matchAll(/link\(([^,]+(?:,[^,"]+)*), "[a-z]+", "\//g)) assert.doesNotMatch(m[1]!, /preset|label/, m[0]);
   assert.equal((nav.match(/preset\(\)/g) ?? []).length, 1, "the menu's order is the preset's only part in the menu");
   const routes = app.slice(app.indexOf("<Router>"), app.indexOf("</Router>"));
   assert.doesNotMatch(routes, /preset/i, "who opens which page doesn't depend on the preset");

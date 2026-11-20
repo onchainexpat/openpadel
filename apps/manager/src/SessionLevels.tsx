@@ -3,7 +3,7 @@
 // saving opens the preview first, as every change does.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { ApiError, api, lang, t, usePreview } from "@kumi/ui";
+import { Skeleton, ApiError, api, lang, t, usePreview } from "@kumi/ui";
 import { changedRows, isChange, LEVEL_REASONS, stepLevel } from "./level_check.ts";
 
 type S = { session: { id: string; name: string; when: string; started: boolean; status: string; program_id: string };
@@ -21,7 +21,7 @@ export function SessionLevels({ id }: { id: string }) {
   useEffect(() => { load(); }, [id, lang.value]);
   // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
   if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const rows = changedRows(d.players, levels), n = rows.length;
   const submit = (e: Event) => {
     e.preventDefault();

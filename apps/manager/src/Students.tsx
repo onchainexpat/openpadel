@@ -2,7 +2,7 @@
 // to come: their level now, how many times, the last time and the next. A coach sees their own; front desk and up pick any coach.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, lang, t } from "@kumi/ui";
+import { Skeleton, api, lang, t } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
 type S = { person_id: string; name: string; junior: boolean; times: number; last_at: string | null; last_kind: "lesson" | "session" | null; last_name: string | null;
@@ -13,7 +13,7 @@ export function Students() {
   const loc = useLocation(), coach = loc.query.coach ?? "";
   const [d, setD] = useState<D | null>(null);
   useEffect(() => { api<D>(`/staff/students${coach ? `?coach=${encodeURIComponent(coach)}` : ""}`).then(setD); }, [coach, lang.value]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const day = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric" }).format(new Date(iso));
   return (
     <main>

@@ -1,7 +1,7 @@
 // The club vault: keys and small documents only the owner sees, sealed with the server's key. A value or file
 // goes to the server first, then the usual preview and confirm. A secret is never shown again, only its end.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, lang, needsStep, t, usePreview, useStepUp, clubTime } from "@kumi/ui";
+import { Skeleton, api, ApiError, lang, needsStep, t, usePreview, useStepUp, clubTime } from "@kumi/ui";
 
 type Item = { id: string; kind: "secret" | "document"; name: string; note: string | null; last4: string | null; filename: string | null; size_bytes: number;
   created_at: string; updated_at: string; by: string | null; kept_by_plugin?: string | null; downloads: { at: string; by: string | null }[] };
@@ -29,7 +29,7 @@ export function Vault() {
   const { preview, sheet } = usePreview(() => { setError(null); setN((x) => x + 1); void load(); });
   if (failed) return <main class="card"><p class="error">{failed}</p></main>;
   if (step.sheet) return <main>{step.sheet}</main>;
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const day = (iso: string) => clubTime(iso, { dateStyle: "medium" });
   const secrets = d.items.filter((x) => x.kind === "secret"), docs = d.items.filter((x) => x.kind === "document");
   // Send the value or file, then preview what the vault action will do with it.

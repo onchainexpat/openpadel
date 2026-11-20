@@ -6,7 +6,7 @@
 // no is the same as on Changes (/runs/:id/approve and /decline, with a second step when the change needs one). A role
 // that doesn't read people sees each ask's title, not its summary, and no names.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, clubTime, dollars, lang, loadMe, needsStep, serverNow, t, useBackCloses, useStepUp } from "@kumi/ui";
+import { Skeleton, api, ApiError, clubTime, dollars, lang, loadMe, needsStep, serverNow, t, useBackCloses, useStepUp } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 import { label } from "./words.ts";
 import { Tabs } from "./lists.tsx";
@@ -47,7 +47,7 @@ export function Approvals() {
   };
 
   if (error && !v) return <main class="card"><p class="error" role="alert">{error}</p></main>;
-  if (!v) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!v) return <Skeleton />;
   const when = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   const what = (a: Ask) => a.summary ?? a.title;
   // Who asked and how (the app, an assistant on /mcp), and how long ago: the exact time on hover.

@@ -1,7 +1,7 @@
 // A lesson's or a program date's players: level, a junior's parents, the club's waiver, and who came. The
 // coach who runs it (or front desk and up) marks "came" or "didn't come" from the start until 48 hours after.
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ApiError, api, lang, t, usePreview, serverNow } from "@kumi/ui";
+import { Skeleton, ApiError, api, lang, t, usePreview, serverNow } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Player = { person_id: string; name: string; level: string | null; provisional: boolean | null; junior: boolean; parents: string[]; waiver: "accepted" | "missing" | null; came: boolean | null };
@@ -20,7 +20,7 @@ export function Roster({ kind, id }: { kind: string; id: string }) {
   useEffect(() => { load(); }, [kind, id, lang.value]);
   // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
   if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const fmt = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: d.time_zone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
   const changed = d.players.filter((p) => marks[p.person_id] !== p.came);
   const count = (v: boolean | null) => d.players.filter((p) => p.came === v).length;

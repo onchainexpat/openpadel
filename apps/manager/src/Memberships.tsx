@@ -3,7 +3,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, currencySign, parseDollars, plainAmount, toMajor, formatLocale } from "@kumi/i18n/format";
-import { api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview, clubTime, serverNow } from "@kumi/ui";
+import { Skeleton, api, dollars, lang, mayDo, OtherLang, savedIn, t, translationsOf, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 
 export type Plan = { id: string; name: string; description: string | null; translations?: unknown; price_cents: number; period: "month" | "year"; days_ahead: number | null; join_in_app?: boolean;
@@ -64,7 +64,7 @@ export function Memberships() {
   const load = () => api<{ plans: Plan[]; members: Member[] }>("/staff/memberships").then(setD);
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, []);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const live = d.members.filter((m) => m.status !== "ended" && (!q || m.display_name.toLowerCase().includes(q.toLowerCase()))), ended = d.members.filter((m) => m.status === "ended");
   return (
     <main>

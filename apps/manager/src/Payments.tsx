@@ -6,7 +6,7 @@
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, clubTime, coversLocation, dollars, lang, mayDo, PluginCards, t, usePluginCards, usePreview } from "@kumi/ui";
+import {StatusIcon, Skeleton, api, ApiError, clubTime, coversLocation, dollars, lang, mayDo, PluginCards, t, usePluginCards, usePreview } from "@kumi/ui";
 import { DeskPay } from "./DeskPay.tsx";
 import { payAction } from "./money_pay.ts";
 import { label } from "./words.ts";
@@ -41,7 +41,7 @@ export function Payments() {
       <div class="page-head"><h1>{label("ui.nav_payments")}</h1></div>
       <p class="meta">{t("ui.money_lead")}</p>
       {mError && !m && <p class="error" role="alert">{mError}</p>}
-      {!m && !mError && <p>{t("ui.loading")}</p>}
+      {!m && !mError && <Skeleton shape="rows" rows={3} />}
       {m && <>
         <div class="money-tiles">
           <section class="card money-tile"><h2>{t("ui.money_today")}</h2><p class="today-total num">{money(m.takings.total_cents)}</p>
@@ -88,7 +88,7 @@ export function Payments() {
               <td data-label={t("ui.col_what")}>{r.what?.name ?? ""}</td>
               <td data-label={t("ui.col_amount")} class="num">{money(r.cents)}</td>
               <td data-label={t("ui.col_goes_to")}>{t(`ui.refund_goes_${r.to}` as Key)}</td>
-              <td data-label={t("ui.col_status")}><span class={`pill pill-refund-${r.status}`}>{t(`ui.refund_state_${r.status}` as Key)}</span></td></tr>)}</tbody>
+              <td data-label={t("ui.col_status")}><span class={`pill pill-refund-${r.status}`}><StatusIcon status={r.status} />{t(`ui.refund_state_${r.status}` as Key)}</span></td></tr>)}</tbody>
           </table></div>}
         </section>
 
@@ -125,7 +125,7 @@ function Payouts() {
       <h2 id="money-payouts">{t("ui.money_payouts")}</h2>
       <p class="meta">{t("ui.money_payouts_help")}{d?.bank ? <> {t("ui.money_payouts_bank", { last4: d.bank.last4 })}</> : null}</p>
       {error && <p class="error" role="alert">{error}</p>}
-      {!d && !error && <p class="meta">{t("ui.loading")}</p>}
+      {!d && !error && <Skeleton shape="rows" rows={6} />}
       {d && (d.provider === "test" && !d.payouts.length ? <p class="meta">{t("ui.money_payouts_test")}</p>
         : d.unavailable ? <p class="meta">{t("ui.money_payouts_unavailable")}</p>
         : !d.connected ? <p class="meta">{t("ui.money_payouts_not_connected")}</p>
@@ -135,7 +135,7 @@ function Payouts() {
             <thead><tr><th>{t("ui.col_arrives")}</th><th>{t("ui.col_amount")}</th><th>{t("ui.col_status")}</th></tr></thead>
             <tbody>{d.payouts.map((p) => <tr key={p.id}><td data-label={t("ui.col_arrives")}>{day(p.arrives_on)}</td>
               <td data-label={t("ui.col_amount")} class="num">{dollars(p.amount_cents, lang.value)}</td>
-              <td data-label={t("ui.col_status")}><span class={`pill pill-payout-${p.status}`}>{t(`ui.payout_state_${p.status}` as Key)}</span></td></tr>)}</tbody>
+              <td data-label={t("ui.col_status")}><span class={`pill pill-payout-${p.status}`}><StatusIcon status={p.status} />{t(`ui.payout_state_${p.status}` as Key)}</span></td></tr>)}</tbody>
           </table></div>
         </>)}
     </section>

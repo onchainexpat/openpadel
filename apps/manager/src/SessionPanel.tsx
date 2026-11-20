@@ -7,7 +7,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
-import { api, club, dollars, lang, mayDo, t } from "@kumi/ui";
+import {StatusIcon, Skeleton, api, club, dollars, lang, mayDo, t } from "@kumi/ui";
 
 type Pay = "paid" | "pass" | "credit" | "membership" | "free" | "unpaid";
 type Panel = { money: boolean; session: { id: string; program_id: string; name: string; start: string; cancelled: boolean };
@@ -20,13 +20,13 @@ export function SessionPanel({ sessionId, tz, preview, stamp }: { sessionId: str
   useEffect(() => { setD(null); api<Panel>(`/staff/sessions/${sessionId}/panel`).then(setD).catch(() => setD(false)); }, [sessionId, stamp, lang.value]);
   // A role that doesn't read programs (or another coach's date): nothing more than the grid already says.
   if (d === false) return null;
-  if (!d) return <p class="meta">{t("ui.loading")}</p>;
+  if (!d) return <Skeleton shape="rows" rows={3} />;
   const day = (iso: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: tz, day: "numeric", month: "short" }).format(new Date(iso));
   const coming = d.players.filter((p) => p.waitlist === undefined);
   // Everyone not marked yet: someone already marked as not having come keeps that mark.
   const notIn = coming.filter((p) => p.came === null);
-  const status = (p: Panel["players"][number]) => p.waitlist !== undefined ? <span class="meta">{t("ui.pay_waitlist", { n: p.waitlist })}</span>
-    : p.pay ? <span class={p.pay === "unpaid" ? "pay-no" : "pay-ok"}>{t(`ui.pay_${p.pay}` as Key)}</span> : null;
+  const status = (p: Panel["players"][number]) => p.waitlist !== undefined ? <span class="meta status-chip"><StatusIcon status="waitlist" />{t("ui.pay_waitlist", { n: p.waitlist })}</span>
+    : p.pay ? <span class={`status-chip ${p.pay === "unpaid" ? "pay-no" : "pay-ok"}`}><StatusIcon status={p.pay} />{t(`ui.pay_${p.pay}` as Key)}</span> : null;
   return (
     <div class="sp">
       <dl class="sp-facts">

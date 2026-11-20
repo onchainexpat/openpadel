@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ApiError, api, t } from "@kumi/ui";
+import { Skeleton, ApiError, api, t } from "@kumi/ui";
 import { usePreview } from "@kumi/ui";
 
 type Game = { id: string; court: string; status: string; odds_a: number; a: string[]; b: string[]; score: { a: number; b: number } | null };
@@ -18,7 +18,7 @@ export function Night({ id }: { id: string }) {
   useEffect(() => { shown.current = id; setD(null); setError(null); setScores({}); load(); }, [id]);
   // Nothing loaded yet: the no is the page. A refresh after a save that fails keeps what was read, with a notice.
   if (error && !d) return <main class="card"><p class="error" role="alert">{error}</p></main>;
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const score = (g: Game) => preview("game.score", { game_id: g.id, a: Number(scores[g.id]?.a ?? 0), b: Number(scores[g.id]?.b ?? 0) });
   const format = d.draw?.format ?? d.format ?? "americano";
 

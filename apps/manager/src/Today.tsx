@@ -3,7 +3,7 @@
 // read people; each row links to the page where it's handled. The one change made here is checking in a booking from Now and next, previewed first like any other.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, clubTime, coversLocation, dollars, EmptyState, lang, mayDo, me, PluginCards, serverNow, t, usePluginCards, usePreview, type ApiError, type PluginCardData } from "@kumi/ui";
+import { Skeleton, api, clubTime, coversLocation, dollars, EmptyState, lang, mayDo, me, PluginCards, serverNow, t, usePluginCards, usePreview, type ApiError, type PluginCardData } from "@kumi/ui";
 import { label } from "./words.ts";
 import { allIn, bookingsIn, checkInInput } from "./check_in.ts";
 
@@ -45,7 +45,7 @@ export function Today() {
   // Each court's tile with plugins' cards on it (lights on until 21:30, say), read again with the page.
   const courts = usePluginCards<{ court_id: string; court: string; cards: PluginCardData[] }[]>("/staff/grid/cards", v?.now);
   if (error && !v) return <main class="card"><p class="error" role="alert">{error}</p></main>;
-  if (!v) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!v) return <Skeleton />;
   const at = (iso: string, o: Intl.DateTimeFormatOptions) => clubTime(iso, o, v.time_zone);
   const money = (c: number) => dollars(c, lang.value);
   const sinceWords = at(v.since.from, Date.parse(v.now) - Date.parse(v.since.from) > 20 * 3600_000 ? { weekday: "short", hour: "numeric", minute: "2-digit" } : { hour: "numeric", minute: "2-digit" });

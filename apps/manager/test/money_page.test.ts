@@ -26,7 +26,7 @@ test("a payment taken for something owed is the Schedule's or the roster's own a
 
 test("only the club's money people get the page, as before", () => {
   const app = src("App.tsx");
-  assert.ok(app.includes('payments: link(show("money"), "/payments", label("ui.nav_payments"))'));
+  assert.ok(app.includes('payments: link(show("money"), "payments", "/payments", label("ui.nav_payments"))'));
   assert.ok(app.includes('<Route path="/payments" component={only("money", Payments)} />'));
 });
 

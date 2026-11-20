@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
-import { api, coversLocation, dollars, EmptyState, lang, mayCreate, me, t, useBackCloses, usePreview } from "@kumi/ui";
+import {Icon, StatusIcon, Skeleton, api, coversLocation, dollars, EmptyState, lang, mayCreate, me, t, useBackCloses, usePreview } from "@kumi/ui";
 import { Details, SidePanel, canMove, canResize, clockIn, courtsOf, daySlots, keyOf, showLocation, type Court, type Grid, type Item } from "./Courts.tsx";
 import { Pager, Tabs } from "./lists.tsx";
 import { BOOKING_COLUMNS, ordered, type BookingColumn } from "./presets.ts";
@@ -82,7 +82,7 @@ export function Bookings() {
         {tab === "all" && list && list.total > 0 && <a class="button" href={`/staff/bookings.csv?${exportQuery()}`} download>{t("ui.export")}</a>}
         {/* The Schedule's + Create, over the first day shown. */}
         {loc && (mayCreate("booking.create") || mayCreate("program.create") || mayCreate("court.block")) && coversLocation(loc) &&
-          <a class="button primary" href={`/courts?location=${loc}&create=1${from ? `&date=${from}` : ""}`}><span aria-hidden="true">+</span> {t("ui.create")}</a>}
+          <a class="button primary" href={`/courts?location=${loc}&create=1${from ? `&date=${from}` : ""}`}><Icon name="plus" />{t("ui.create")}</a>}
       </div>
       {weekly !== false && <Tabs label={t("ui.bookings_lists")} tabs={[["all", t("ui.bookings_all")], ["weekly", t("ui.bookings_weekly")]]} on={tab} pick={(x) => { setTab(x as "all" | "weekly"); close(); }} id="bookings" />}
 
@@ -105,7 +105,7 @@ export function Bookings() {
           {filter(t("ui.filter_made_in"), made, setMade, MADE.map((x) => [x, t(`ui.made_in_${x}` as Key)]))}
         </div>
         {error && <p class="error" role="alert">{error}</p>}
-        {!list ? <p>{t("ui.loading")}</p> : list.rows.length === 0 ? <EmptyState art="no-bookings" size="s" class="meta">{t("ui.bookings_none")}</EmptyState> : <>
+        {!list ? <Skeleton shape="rows" rows={6} /> : list.rows.length === 0 ? <EmptyState art="no-bookings" size="s" class="meta">{t("ui.bookings_none")}</EmptyState> : <>
           <BookingTable list={list} onOpen={open} />
           <Pager page={list.page} pages={list.pages} go={setPage} shown={list.rows.length} total={list.total} per={25} />
           {list.rows.some((r) => r.type === "playtomic") && <p class="meta">{t("ui.playtomic_copies_note")}</p>}
@@ -124,7 +124,7 @@ export function Bookings() {
   );
 }
 
-const pillOf = (s: Row["status"]) => <span class={`pill pill-${s}`}>{t(`ui.booking_state_${s}` as Key)}</span>;
+const pillOf = (s: Row["status"]) => <span class={`pill pill-${s}`}><StatusIcon status={s} />{t(`ui.booking_state_${s}` as Key)}</span>;
 /** Each column's heading; their order is the club's "Coming from" preset's (presets.ts). */
 const HEAD: Record<BookingColumn, "ui.date_and_time" | "ui.length" | "ui.players_col" | "ui.court_label" | "ui.filter_type" | "ui.filter_made_in" | "ui.filter_status"> = {
   when: "ui.date_and_time", length: "ui.length", players: "ui.players_col", court: "ui.court_label", type: "ui.filter_type", made_in: "ui.filter_made_in", status: "ui.filter_status" };
@@ -194,7 +194,7 @@ function RowPanel({ row, g, tz, loc, preview }: { row: Row; g: Grid | null; tz: 
     return <><Details key={`${row.key}|${it.start}|${it.end}`} it={it} court={court} g={g} clock={clock} slots={daySlots(g)} preview={preview} canMove={canMove(it)} canResize={canResize(it)}
       courtFixed={courtsOf(g, it) > 1} />{day}</>;
   }
-  if (row.status !== "cancelled" && !g) return <p>{t("ui.loading")}</p>;
+  if (row.status !== "cancelled" && !g) return <Skeleton shape="rows" rows={2} />;
   const clock = clockIn(tz);
   return (
     <section>

@@ -4,7 +4,7 @@
 // assistants are listed with who connected them and can be disconnected. Installed plugins are the page's own cards
 // (Plugins.tsx). The owner and managers read it; every change is previewed (a manager's asks wait for the owner).
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, dollars, lang, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, clubTime, dollars, lang, t, usePreview } from "@kumi/ui";
 import { amountInput, amountPattern, currencySign, parseAmount } from "@kumi/i18n/format";
 
 type Agent = { id: string; name: string; role: string | null; role_name: string; can: string; created_by: string | null; created_at: string; revoked_at: string | null;
@@ -32,7 +32,7 @@ export function Agents({ onChange }: { onChange?: () => void }) {
     void load();
   });
   useEffect(() => { void load(); }, [lang.value]);
-  if (!d) return <section class="card"><p>{t("ui.loading")}</p></section>;
+  if (!d) return <Skeleton shape="card" />;
   const live = d.agents.filter((a) => !a.revoked_at), gone = d.agents.filter((a) => a.revoked_at);
   return (
     <div id="agents">

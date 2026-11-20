@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, AskChat, club, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses, mayDo } from "@kumi/ui";
+import { api, AskChat, Skeleton, club, Icon, type IconName, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses, mayDo } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts, NewBooking, SessionPanel } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
@@ -132,8 +132,17 @@ const badge = (n: number) => n > 0 && <span class="badge warn">{n}</span>;
 
 /** The Questions link, with how many wait for an answer. */
 function QuestionsLink({ n, current }: { n: number; current?: "page" }) {
-  return <a href="/questions" aria-current={current}>{label("ui.nav_questions")}{badge(n)}</a>;
+  return <a href="/questions" aria-current={current}><Icon name={MENU_ICONS.questions} /><span class="nav-word">{label("ui.nav_questions")}</span>{badge(n)}</a>;
 }
+
+/** Each menu item's icon, beside its words (one per item, so the menu scans the same in every preset's order). */
+const MENU_ICONS: Record<MenuItem, IconName> = {
+  day: "calendar-days", today: "sun", schedule: "calendar-clock", bookings: "list", people: "users", programs: "graduation-cap",
+  payments: "credit-card", memberships: "id-card", coaches: "user-star", levels: "chart-no-axes-column-increasing", scores: "medal",
+  questions: "message-circle-question", messages: "mail", chats: "messages-square", moving: "truck", playtomic: "link", reports: "chart-column",
+  approvals: "badge-check", usage: "gauge", connectors: "plug", roles: "shield-user", changes: "history", settings: "settings", inbox: "inbox",
+  profile: "circle-user-round",
+};
 
 type Access = ReturnType<typeof access>;
 /** The staff menu: the Schedule first, then the club's people and what they sign up for, levels, messages, the
@@ -146,39 +155,40 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
   // The page open now: its own address or one under it ("/" is whichever page is home).
   const on = (...roots: string[]) => (roots.some((r) => path === r || path.startsWith(`${r}/`)) ? "page" as const : undefined);
   const home = (item: MenuItem) => (path === "/" && homeItem === item ? "page" as const : undefined);
-  const link = (yes: unknown, href: string, words: string, current: "page" | null | undefined = on(href), count = 0) => (yes ? <li><a href={href} aria-current={current ?? undefined}>{words}{badge(count)}</a></li> : null);
+  const link = (yes: unknown, item: MenuItem, href: string, words: string, current: "page" | null | undefined = on(href), count = 0) => (yes
+    ? <li><a href={href} aria-current={current ?? undefined}><Icon name={MENU_ICONS[item]} /><span class="nav-word">{words}</span>{badge(count)}</a></li> : null);
   const messages = desk || Boolean(areas?.includes("messages"));
   const items: Record<MenuItem, any> = {
-    day: link(show("bookings"), "/courts", label("ui.nav_day_schedule"), on("/courts") ?? home("day")),
-    today: link(!coachOnly, "/today", label("ui.nav_today"), on("/today") ?? home("today"), n.today),
-    schedule: link(coach, "/schedule", label("ui.nav_schedule"), on("/schedule", "/roster", "/students") ?? home("schedule")),
-    bookings: link(show("bookings"), "/bookings", label("ui.nav_bookings"), on("/bookings") ?? home("bookings")),
-    people: link(show("members"), "/people", label("ui.nav_people"), on("/people") ?? home("people")),
-    programs: link(show("programs"), "/programs", label("ui.nav_programs"), on("/programs", "/sessions") ?? home("programs")),
-    payments: link(show("money"), "/payments", label("ui.nav_payments")),
-    memberships: link(show("memberships"), "/memberships", label("ui.nav_memberships")),
-    coaches: link(coach || desk || areas?.includes("coaches"), "/coaches", label("ui.nav_coaches")),
-    levels: link(show("levels"), "/levels", label("ui.nav_levels")),
-    scores: link(show("levels"), "/scores", label("ui.nav_scores"), on("/scores"), n.disputes),
+    day: link(show("bookings"), "day", "/courts", label("ui.nav_day_schedule"), on("/courts") ?? home("day")),
+    today: link(!coachOnly, "today", "/today", label("ui.nav_today"), on("/today") ?? home("today"), n.today),
+    schedule: link(coach, "schedule", "/schedule", label("ui.nav_schedule"), on("/schedule", "/roster", "/students") ?? home("schedule")),
+    bookings: link(show("bookings"), "bookings", "/bookings", label("ui.nav_bookings"), on("/bookings") ?? home("bookings")),
+    people: link(show("members"), "people", "/people", label("ui.nav_people"), on("/people") ?? home("people")),
+    programs: link(show("programs"), "programs", "/programs", label("ui.nav_programs"), on("/programs", "/sessions") ?? home("programs")),
+    payments: link(show("money"), "payments", "/payments", label("ui.nav_payments")),
+    memberships: link(show("memberships"), "memberships", "/memberships", label("ui.nav_memberships")),
+    coaches: link(coach || desk || areas?.includes("coaches"), "coaches", "/coaches", label("ui.nav_coaches")),
+    levels: link(show("levels"), "levels", "/levels", label("ui.nav_levels")),
+    scores: link(show("levels"), "scores", "/scores", label("ui.nav_scores"), on("/scores"), n.disputes),
     questions: messages && <li><QuestionsLink n={n.questions} current={on("/questions", "/facts")} /></li>,
-    messages: link(messages, "/messages", label("ui.nav_messages"), on("/messages", "/groups", "/templates")),
-    chats: link(show("members") && club.value?.players_chat, "/chats", label("ui.nav_chats")),
+    messages: link(messages, "messages", "/messages", label("ui.nav_messages"), on("/messages", "/groups", "/templates")),
+    chats: link(show("members") && club.value?.players_chat, "chats", "/chats", label("ui.nav_chats")),
     // The guided move from another system (Playtomic, CourtReserve, Playbypoint, a spreadsheet), while it's under way.
-    moving: link(n.moving && mayDo("move.step"), "/settings/moving-in", t("ui.nav_moving"), on("/settings/moving-in", "/playtomic/move-in")),
-    playtomic: link(me.value?.playtomic, "/playtomic", label("ui.nav_playtomic")),
-    reports: link(show("money") || coachSide, "/reports", label("ui.nav_reports")),
+    moving: link(n.moving && mayDo("move.step"), "moving", "/settings/moving-in", t("ui.nav_moving"), on("/settings/moving-in", "/playtomic/move-in")),
+    playtomic: link(me.value?.playtomic, "playtomic", "/playtomic", label("ui.nav_playtomic")),
+    reports: link(show("money") || coachSide, "reports", "/reports", label("ui.nav_reports")),
     // Approvals for everyone but a coach on their own (their own asks wait there too), and for anyone with one to answer.
-    approvals: link(!coachOnly || n.approvals > 0, "/approvals", label("ui.nav_approvals"), on("/approvals"), n.approvals),
-    usage: link(changes, "/usage", label("ui.nav_usage")),
+    approvals: link(!coachOnly || n.approvals > 0, "approvals", "/approvals", label("ui.nav_approvals"), on("/approvals"), n.approvals),
+    usage: link(changes, "usage", "/usage", label("ui.nav_usage")),
     // Connectors (the WebConnectors board): the owner's and managers', not under support access, as Agents was.
-    connectors: link(changes && !me.value?.support, "/connectors", t("ui.nav_connectors"), on("/connectors")),
+    connectors: link(changes && !me.value?.support, "connectors", "/connectors", t("ui.nav_connectors"), on("/connectors")),
     // Roles (WebPermissions' "Staff and permissions"): for those who may make a role (the owner; a manager asks), on
     // the Roles page Settings links to as well. Not under support access, which never changes roles.
-    roles: link(show("settings") && mayCreate("role.create") && !me.value?.support, "/roles", label("ui.nav_roles")),
-    changes: link(changes, "/changes", label("ui.nav_changes")),
-    settings: link(show("settings"), "/settings", label("ui.nav_settings"), path.startsWith("/settings/moving-in") && n.moving ? null : on("/settings", "/vault")),
-    inbox: <li><InboxLink current={on("/inbox")} /></li>,
-    profile: link(true, "/profile", label("ui.nav_profile")),
+    roles: link(show("settings") && mayCreate("role.create") && !me.value?.support, "roles", "/roles", label("ui.nav_roles")),
+    changes: link(changes, "changes", "/changes", label("ui.nav_changes")),
+    settings: link(show("settings"), "settings", "/settings", label("ui.nav_settings"), path.startsWith("/settings/moving-in") && n.moving ? null : on("/settings", "/vault")),
+    inbox: <li><InboxLink current={on("/inbox")} icon /></li>,
+    profile: link(true, "profile", "/profile", label("ui.nav_profile")),
   };
   const groups = preset().menu;
   return (
@@ -186,7 +196,7 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
       {groups.map((g, i) => (
         <ul>
           {g.map((item) => items[item])}
-          {i === groups.length - 1 && <li><button type="button" class="link" onClick={signOut}>{t("ui.sign_out")}</button></li>}
+          {i === groups.length - 1 && <li><button type="button" class="link" onClick={signOut}><Icon name="log-out" /><span class="nav-word">{t("ui.sign_out")}</span></button></li>}
         </ul>))}
     </nav>
   );
@@ -200,17 +210,10 @@ const TAB_WORDS: Record<TabKey, () => string> = {
   approvals: () => t("ui.phone_tab_approvals"), people: () => label("ui.nav_people"), levels: () => t("ui.nav_levels"), programs: () => t("ui.phone_tab_programs"),
   bookings: () => label("ui.nav_bookings"), reports: () => t("ui.nav_reports"), profile: () => t("ui.nav_profile"),
 };
-const TAB_ICONS: Record<TabKey, preact.JSX.Element> = {
-  today: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>,
-  day: <><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M8 2.5v4M16 2.5v4M3 10h18" /></>,
-  schedule: <><rect x="3" y="4.5" width="18" height="16.5" rx="2" /><path d="M8 2.5v4M16 2.5v4M3 10h18M8 14h3M8 17h6" /></>,
-  approvals: <><path d="M9 11l3 3 8-8" /><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" /></>,
-  people: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></>,
-  levels: <path d="M4 20V14M10 20V9M16 20V4M2 20h20" />,
-  programs: <><path d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v16H5.5A1.5 1.5 0 0 0 4 20.5z" /><path d="M4 20.5A1.5 1.5 0 0 0 5.5 22H20" /></>,
-  bookings: <><path d="M8 6h13M8 12h13M8 18h13" /><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" /></>,
-  reports: <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />,
-  profile: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+/** The phone tabs' icons: the same as each page's in the menu. */
+const TAB_ICONS: Record<TabKey, IconName> = {
+  today: MENU_ICONS.today, day: MENU_ICONS.day, schedule: MENU_ICONS.schedule, approvals: MENU_ICONS.approvals, people: MENU_ICONS.people,
+  levels: MENU_ICONS.levels, programs: MENU_ICONS.programs, bookings: MENU_ICONS.bookings, reports: MENU_ICONS.reports, profile: MENU_ICONS.profile,
 };
 
 /** On a phone, the pages a person opens most as tabs at the bottom, with + in the middle opening the Schedule's
@@ -228,7 +231,7 @@ function PhoneTabs({ a, n }: { a: Access; n: Counts }) {
   const cell = (x: PhoneTab) => {
     const on = tabIsOn(x, path, homeHref);
     return <a href={x.href} class={on ? "on" : undefined} aria-current={on ? "page" : undefined}>
-      <span class="tab-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{TAB_ICONS[x.key]}</svg>
+      <span class="tab-icon"><Icon name={TAB_ICONS[x.key]} />
         {x.key === "approvals" && n.approvals > 0 && <span class="tab-count">{n.approvals}</span>}</span>
       <span class="tab-word">{TAB_WORDS[x.key]()}</span>
       {x.key === "approvals" && n.approvals > 0 && <span class="visually-hidden">: {t("count.approvals_waiting", { count: n.approvals })}</span>}
@@ -239,7 +242,7 @@ function PhoneTabs({ a, n }: { a: Access; n: Counts }) {
     <nav class="phone-tabs" aria-label={t("ui.phone_tabs")}>
       {tabs.slice(0, at).map(cell)}
       {plus && <button type="button" class="tab-plus" aria-label={t("ui.create")} aria-haspopup="dialog" onClick={add}>
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg></button>}
+        <Icon name="plus" /></button>}
       {tabs.slice(at).map(cell)}
     </nav>
   );
@@ -297,7 +300,7 @@ function Frame({ a, signOut, children }: { a: Access; signOut: () => void; child
     <div class="shell">
       <header class="topbar">
         <button type="button" class="menu-button" aria-expanded={shown} aria-controls="staff-menu" onClick={() => setOpen(!open)}>
-          <span aria-hidden="true">☰</span> {t("ui.menu")}</button>
+          <Icon name="menu" /> {t("ui.menu")}</button>
         <strong>{club.value?.logo && <img class="club-logo" src={club.value.logo} alt="" width={28} height={28} />}{club.value?.name}</strong>
       </header>
       {shown && <div class="scrim" onClick={close} />}
@@ -344,7 +347,7 @@ export function App() {
     idle(next);
   }, [inside]);
 
-  if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (me.value === undefined) return <Skeleton />;
   if (me.value === null) return <SignIn />;
   if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
   const signOut = () => signOutHere();
