@@ -7,6 +7,20 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Not released yet
+
+### Changed
+- Both apps have one set of icons, beside the words (never instead of them): the members' tabs, the staff menu
+  (every item, Moving in too) and the staff phone tabs, the main buttons (book, pay, add, invite, share, check in),
+  the facts on a list's rows (time, court, price, level, places), the status pills (paid, waiting, cancelled) and
+  Settings' sections and pages. They're a few of Lucide's (ISC licence, kept in `packages/ui/icons`), copied in as
+  their shapes, so no package came with them; each takes the size and colour of the words around it, so it suits both
+  themes and the club's colour.
+- While a page or a list loads, it shows grey shapes where its words will be, in the shape of what's coming (a page's
+  title and rows, a list's rows, a card, a line), in place of the word "Loading". They wait 150 ms first, so a quick
+  answer doesn't flash them; the shimmer stops when the phone asks for less motion, and screen readers still hear
+  "Loading".
+
 ## 0.7.4 (2026-11-20)
 
 Security updates and the project's own addresses, ahead of the repository going public.
