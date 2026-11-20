@@ -100,3 +100,24 @@ test("a skeleton waits a moment, is marked busy, keeps the word for screen reade
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.skel-bar, \.skel-shown \{ animation: none; \} \}/);
   assert.ok(existsSync(`${root}packages/ui/src/Skeleton.tsx`));
 });
+
+test("an icon waiting for its shapes keeps its 1em box, so nothing moves when they arrive", () => {
+  const src = read("packages/ui/src/Icon.tsx");
+  const body = src.slice(src.indexOf("export function Icon("), src.indexOf("/** A status's icon"));
+  // Always the same <svg>, shapes or not: no early return while they load, and its size on the element itself (so it
+  // holds even before the stylesheet), filled in place once the shapes come.
+  assert.doesNotMatch(body, /if \(!all\) return/);
+  assert.equal(body.match(/return \(/g)?.length, 1, "one thing drawn, whether the shapes are in or not");
+  assert.match(body, /<svg class=\{`icon[^>]*width="1em" height="1em"/);
+  assert.match(body, /\{all\?\.\[name\]\.map\(/);
+  // And the stylesheet keeps the box: inline-block, 1em by 1em, never shrunk in a row; no rule anywhere hides an empty one
+  // or sizes an icon any other way than by its font size.
+  const css = (read("packages/ui/src/styles.css") + read("apps/member/src/member.css")).replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(css, /\.icon \{ display: inline-block; flex: none; width: 1em; height: 1em;/);
+  for (const m of css.matchAll(/([^{}]*\.icon\b[^{}]*)\{([^}]*)\}/g)) {
+    const [sel, rule] = [m[1]!.trim(), m[2]!];
+    if (/button\.icon/.test(sel) || sel === ".icon") continue;
+    assert.doesNotMatch(rule, /(^|;)\s*(width|height|display|min-width|min-height)\s*:/, `${sel} sizes or hides an icon`);
+  }
+  assert.doesNotMatch(css, /svg:empty|\.icon:empty/);
+});
