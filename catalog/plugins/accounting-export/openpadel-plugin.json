@@ -1,10 +1,10 @@
 {
-  "$schema": "https://openpadel.org/schemas/openpadel-plugin.v1.json",
+  "$schema": "https://openpadel.dev/schemas/openpadel-plugin.v1.json",
   "manifest_version": 1,
   "name": "accounting-export",
   "publisher": "openPadel examples",
   "version": "0.1.0",
-  "homepage": "https://github.com/openpadel/plugin-accounting-export",
+  "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/accounting-export",
   "licence": "MIT",
   "description": {
     "en": "Sends each club day's takings, refunds, tax, card fees and payouts to the club's Xero or QuickBooks as one journal, early the next morning.",
@@ -382,6 +382,6 @@
   },
   "run": {
     "mode": "remote",
-    "url": "https://accounting.plugins.openpadel.org/v1"
+    "url": "https://accounting.plugins.openpadel.dev/v1"
   }
 }

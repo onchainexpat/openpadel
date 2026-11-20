@@ -35,7 +35,7 @@ openpadel plugin install --name court-lights
 > able to: change nothing at the club. It reads: bookings, courts and hours. It's told when: booking.cancelled, ...
 > It sends: Each booking's court, start and end go to the club's own Home Assistant. No names, emails or phone numbers.
 > Needs: Home Assistant access token (HA_TOKEN). ... Its key to the club: a token that goes straight to
-> lights.plugins.openpadel.org, signed by the club, never to you or your agent. It can't move money.
+> lights.plugins.openpadel.dev, signed by the club, never to you or your agent. It can't move money.
 
 The agent shows the owner those words and confirms only on their yes. The owner's own agent installs outright; a
 manager (or a club agent with the manager's role) asks, and the owner says yes in Approvals.
@@ -72,7 +72,7 @@ So the club's agent can do the installing, and the owner's yes to the preview is
 `KUMI_PLUGIN_CATALOG_URL` (an https address, or a file on the server). Without one it reads a sample bundled with
 openPadel, with the court lights example.
 Whatever a catalog lists counts as reviewed, so `openpadel doctor` warns while the server reads one other than
-openPadel's own (`https://plugins.openpadel.org/catalog.json`) or the bundled sample.
+openPadel's own (`https://plugins.openpadel.dev/catalog.json`) or the bundled sample.
 openPadel's catalog is kept as files in [catalog/](../../catalog/README.md): one folder per plugin with its manifest
 and the release it pins, the review checklist a plugin passes before it's listed
 ([catalog/CONTRIBUTING.md](../../catalog/CONTRIBUTING.md)), and a build that checks every manifest with the server's own

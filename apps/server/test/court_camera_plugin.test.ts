@@ -126,7 +126,7 @@ test("installed at the club, a camera's highlight posted to the club reaches the
 
 test("its release for a club's own server passes the club's manifest check and unpacks as plugin service does", async () => {
   const out = mkdtempSync(join(tmpdir(), "court-camera-release-"));
-  const r = pack({ releaseUrl: "https://github.com/openpadel/plugin-court-camera/releases/download/v0.1.0/court-camera-0.1.0.tar.gz", out });
+  const r = pack({ releaseUrl: "https://github.com/onchainexpat/openpadel/releases/download/plugin-court-camera-v0.1.0/court-camera-0.1.0.tar.gz", out });
   const m = parseManifest(readFileSync(r.manifestFile, "utf8"));
   await checkManifestAtClub(db, m);
   assert.equal(m.run.mode, "local");

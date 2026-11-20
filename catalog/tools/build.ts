@@ -1,7 +1,7 @@
 // Builds openPadel's reviewed plugin catalog: every plugins/<name>/ folder's manifest checked with the club server's
 // own parser (packages/core plugin_manifest.ts, the same check `openpadel plugin install` makes), its pinned release
 // checked against it, and catalog.json written: the index a club's server reads (KUMI_PLUGIN_CATALOG_URL, by default
-// https://plugins.openpadel.org/catalog.json). The same files in, the same bytes out (sorted by name, no dates), so
+// https://plugins.openpadel.dev/catalog.json). The same files in, the same bytes out (sorted by name, no dates), so
 // `--check` can say whether catalog.json is current.
 //
 //   node catalog/tools/build.ts            writes catalog/catalog.json

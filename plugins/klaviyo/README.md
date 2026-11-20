@@ -80,7 +80,7 @@ doesn't show plugin cards yet is asked again hourly; the list is kept the same w
 `openpadel plugin service` runs a local plugin as its own sandboxed service, from a release pinned by its SHA-256:
 
 ```bash
-node tools/pack.ts --release-url https://github.com/openpadel/plugin-klaviyo/releases/download/v0.1.0/klaviyo-0.1.0.tar.gz
+node tools/pack.ts --release-url https://github.com/onchainexpat/openpadel/releases/download/plugin-klaviyo-v0.1.0/klaviyo-0.1.0.tar.gz
 ```
 
 writes `dist/klaviyo-0.1.0.tar.gz` (the same bytes every time from the same files) and `dist/openpadel-plugin.local.json`,

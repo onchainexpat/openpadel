@@ -63,7 +63,7 @@ lights only is enough.
 Make the release:
 
 ```bash
-node tools/pack.ts --release-url https://github.com/openpadel/plugin-court-lights/releases/download/v0.1.0/court-lights-0.1.0.tar.gz
+node tools/pack.ts --release-url https://github.com/onchainexpat/openpadel/releases/download/plugin-court-lights-v0.1.0/court-lights-0.1.0.tar.gz
 ```
 
 It writes `dist/court-lights-0.1.0.tar.gz` (the same bytes every time from the same files) and

@@ -407,14 +407,14 @@ test("a local plugin: no registration POST; its release is checked against its S
 });
 
 test("what went wrong reaching a plugin reads in plain words, both languages, whatever the network said", () => {
-  const h = "lights.plugins.openpadel.org";
+  const h = "lights.plugins.openpadel.dev";
   const cases: [string, RegExp][] = [
-    ["getaddrinfo ENOTFOUND lights.plugins.openpadel.org", /^can't find lights\.plugins\.openpadel\.org: that address doesn't exist/],
+    ["getaddrinfo ENOTFOUND lights.plugins.openpadel.dev", /^can't find lights\.plugins\.openpadel\.dev: that address doesn't exist/],
     ["ENOTFOUND: getaddrinfo ENOTFOUND x", /^can't find/], ["connect ECONNREFUSED 1.2.3.4:443", /refused the connection$/],
     ["took longer than 4 seconds", /didn't answer in time$/], ["UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error", /didn't answer in time$/],
     ["CERT_HAS_EXPIRED: certificate has expired", /security certificate isn't valid$/], ["HTTP 500", /answered with an error \(HTTP 500\)$/],
     ["lights isn't a public address", /must be public and use https$/], ["socket hang up", /cut the connection$/],
-    ["too large", /made no sense$/], ["fetch failed", /^can't reach lights\.plugins\.openpadel\.org just now$/], ["", /just now$/],
+    ["too large", /made no sense$/], ["fetch failed", /^can't reach lights\.plugins\.openpadel\.dev just now$/], ["", /just now$/],
   ];
   for (const [raw, want] of cases) {
     const t = problemText(raw, h);
@@ -447,7 +447,7 @@ test("the plugin list and the catalog are the owner's and managers'; the process
 test("doctor warns when the plugin catalog is someone else's: everything in it counts as reviewed", async () => {
   const at = (env: Record<string, string>) => doctor(db, { NODE_ENV: "development", ...env }).then((cs) => cs.find((c) => c.id === "plugin_catalog"));
   assert.equal(await at({}), undefined, "the bundled sample");
-  assert.equal(await at({ KUMI_PLUGIN_CATALOG_URL: "https://plugins.openpadel.org/catalog.json" }), undefined, "openPadel's own");
+  assert.equal(await at({ KUMI_PLUGIN_CATALOG_URL: "https://plugins.openpadel.dev/catalog.json" }), undefined, "openPadel's own");
   const c = (await at({ KUMI_PLUGIN_CATALOG_URL: "https://plugins.example.com/index.json" }))!;
   assert.equal(c.state, "warn");
   assert.match(c.text.en, /reads plugins from https:\/\/plugins\.example\.com\/index\.json, not openPadel's own catalog\. Everything listed there counts as reviewed/);

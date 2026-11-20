@@ -1,10 +1,10 @@
 {
-  "$schema": "https://openpadel.org/schemas/openpadel-plugin.v1.json",
+  "$schema": "https://openpadel.dev/schemas/openpadel-plugin.v1.json",
   "manifest_version": 1,
   "name": "court-lights",
   "publisher": "openPadel examples",
   "version": "0.1.0",
-  "homepage": "https://github.com/openpadel/plugin-court-lights",
+  "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/court-lights",
   "licence": "MIT",
   "description": {
     "en": "Turns a court's lights on in Home Assistant a few minutes before each booking and off after it ends.",
@@ -120,6 +120,6 @@
   "health": "/health",
   "run": {
     "mode": "remote",
-    "url": "https://lights.plugins.openpadel.org/v1"
+    "url": "https://lights.plugins.openpadel.dev/v1"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "$schema": "https://openpadel.org/schemas/openpadel-plugin.v1.json",
+  "$schema": "https://openpadel.dev/schemas/openpadel-plugin.v1.json",
   "manifest_version": 1,
   "name": "bookings-today",
   "publisher": "Your name or company",

@@ -138,7 +138,7 @@ description ends with its key in brackets, which is how the plugin reads back wh
 ### On the club's own server (local)
 
 ```bash
-node tools/pack.ts --release-url https://github.com/openpadel/plugin-accounting-export/releases/download/v0.1.0/accounting-export-0.1.0.tar.gz
+node tools/pack.ts --release-url https://github.com/onchainexpat/openpadel/releases/download/plugin-accounting-export-v0.1.0/accounting-export-0.1.0.tar.gz
 ```
 
 makes `dist/accounting-export-0.1.0.tar.gz` (the same bytes every time from the same files) and

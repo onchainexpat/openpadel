@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
-  "url": "https://github.com/openpadel/plugin-klaviyo/releases/download/v0.1.0/klaviyo-0.1.0.tar.gz",
-  "sha256": "895e789c5a0cfdeda62b2d418a50e07f19c1c33e171f28faa5e45202e5c18f63",
+  "url": "https://github.com/onchainexpat/openpadel/releases/download/plugin-klaviyo-v0.1.0/klaviyo-0.1.0.tar.gz",
+  "sha256": "ea8ec0c7b61edb7e411776315bc9c4a26665fb18f08055778e05bc9771a5415a",
   "reviewed": {
     "by": "openPadel",
     "on": "2026-11-18",

@@ -1,10 +1,10 @@
 {
-  "$schema": "https://openpadel.org/schemas/openpadel-plugin.v1.json",
+  "$schema": "https://openpadel.dev/schemas/openpadel-plugin.v1.json",
   "manifest_version": 1,
   "name": "court-camera",
   "publisher": "openPadel examples",
   "version": "0.1.0",
-  "homepage": "https://github.com/openpadel/plugin-court-camera",
+  "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/court-camera",
   "licence": "MIT",
   "description": {
     "en": "Shows the club's court cameras' highlights and game stats on each game's page, for its players and staff. A camera system posts when a clip is ready, and the plugin finds the booking on that court at that time.",
@@ -130,6 +130,6 @@
   },
   "run": {
     "mode": "remote",
-    "url": "https://cameras.plugins.openpadel.org/v1"
+    "url": "https://cameras.plugins.openpadel.dev/v1"
   }
 }

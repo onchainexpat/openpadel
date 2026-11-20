@@ -1,10 +1,10 @@
 {
-  "$schema": "https://openpadel.org/schemas/openpadel-plugin.v1.json",
+  "$schema": "https://openpadel.dev/schemas/openpadel-plugin.v1.json",
   "manifest_version": 1,
   "name": "klaviyo",
   "publisher": "openPadel examples",
   "version": "0.1.0",
-  "homepage": "https://github.com/openpadel/plugin-klaviyo",
+  "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/klaviyo",
   "licence": "MIT",
   "description": {
     "en": "Keeps a Klaviyo list of the members who said yes to club news by email: on it when they say yes, off it as soon as they say no or their account is deleted, and checked against the club every day.",
@@ -70,6 +70,6 @@
   "health": "/health",
   "run": {
     "mode": "remote",
-    "url": "https://klaviyo.plugins.openpadel.org/v1"
+    "url": "https://klaviyo.plugins.openpadel.dev/v1"
   }
 }

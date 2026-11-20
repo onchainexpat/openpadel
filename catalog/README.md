@@ -39,7 +39,7 @@ runs, and what a club can run itself instead.
 ```bash
 node catalog/tools/build.ts           # check every plugin and write catalog.json
 node catalog/tools/build.ts --check   # fail if catalog.json isn't current
-node catalog/tools/build.ts pin klaviyo --release-url https://github.com/openpadel/plugin-klaviyo/releases/download/v0.1.0/klaviyo-0.1.0.tar.gz
+node catalog/tools/build.ts pin klaviyo --release-url https://github.com/onchainexpat/openpadel/releases/download/plugin-klaviyo-v0.1.0/klaviyo-0.1.0.tar.gz
 ```
 
 `pin` packs one of this repository's own plugins with its `tools/pack.ts` (the same bytes every time from the same
@@ -67,13 +67,13 @@ Nothing here is published yet. To make it the catalog every club reads:
    pinned dependency (a git tag), or vendor `plugin_manifest.ts` with a test that it matches.
 2. **The releases.** For each plugin, a GitHub release `v<version>` in its own repository (`openpadel/plugin-<name>`)
    with the `.tar.gz` that `pin` made, so each `release.json` address answers with exactly those bytes.
-3. **The address.** Serve `catalog.json` at `https://plugins.openpadel.org/catalog.json`: a DNS record for
-   `plugins.openpadel.org` and any static host (GitHub Pages from the repository works), https only.
-4. **The hosted plugins.** The catalog's manifests are remote ones that run at `https://<name>.plugins.openpadel.org/v1`.
+3. **The address.** Serve `catalog.json` at `https://plugins.openpadel.dev/catalog.json`: a DNS record for
+   `plugins.openpadel.dev` and any static host (GitHub Pages from the repository works), https only.
+4. **The hosted plugins.** The catalog's manifests are remote ones that run at `https://<name>.plugins.openpadel.dev/v1`.
    Until openPadel runs those, clubs install them locally (`openpadel plugin service`) with the pinned release.
 
 **What changes in the setting then:** nothing for a club. `KUMI_PLUGIN_CATALOG_URL` stays unset; openPadel's own
-address is built in (`OPENPADEL_CATALOG_URL` in packages/core/src/plugins.ts, `https://plugins.openpadel.org/catalog.json`).
+address is built in (`OPENPADEL_CATALOG_URL` in packages/core/src/plugins.ts, `https://plugins.openpadel.dev/catalog.json`).
 Today an unset setting reads the sample bundled with openPadel (packages/core/src/plugin_catalog.sample.json); once the
 address answers, openPadel's next release reads it there when the setting is unset (a one-line change in
 `pluginCatalog`), and keeps the sample only for a server with no internet. A club that set `KUMI_PLUGIN_CATALOG_URL` to

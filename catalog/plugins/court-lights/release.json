@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
-  "url": "https://github.com/openpadel/plugin-court-lights/releases/download/v0.1.0/court-lights-0.1.0.tar.gz",
-  "sha256": "ee71277fd8f81c4822ac95c68f30c42d121f9f6d0ea75cfa21b2d5fe03fca463",
+  "url": "https://github.com/onchainexpat/openpadel/releases/download/plugin-court-lights-v0.1.0/court-lights-0.1.0.tar.gz",
+  "sha256": "29d46080b800b848f0f2585a173bfea6fa093611e12758fef6063c8cad393f62",
   "reviewed": {
     "by": "openPadel",
     "on": "2026-11-18",

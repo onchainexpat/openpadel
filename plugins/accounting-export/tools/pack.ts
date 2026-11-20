@@ -2,7 +2,7 @@
 // src/, package.json, README.md), the same bytes every time from the same files (sorted, no dates, no owners), and the
 // manifest that pins it by its SHA-256. Usage:
 //
-//   node tools/pack.ts --release-url https://github.com/openpadel/plugin-accounting-export/releases/download/v0.1.0/accounting-export-0.1.0.tar.gz [--out dist]
+//   node tools/pack.ts --release-url https://github.com/onchainexpat/openpadel/releases/download/plugin-accounting-export-v0.1.0/accounting-export-0.1.0.tar.gz [--out dist]
 //
 // Publish the .tar.gz at that address, then install with the printed manifest (or add it to the catalog).
 import { createHash } from "node:crypto";

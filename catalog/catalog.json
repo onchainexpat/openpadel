@@ -12,7 +12,7 @@
         "name": "accounting-export",
         "publisher": "openPadel examples",
         "version": "0.1.0",
-        "homepage": "https://github.com/openpadel/plugin-accounting-export",
+        "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/accounting-export",
         "licence": "MIT",
         "description": {
           "en": "Sends each club day's takings, refunds, tax, card fees and payouts to the club's Xero or QuickBooks as one journal, early the next morning.",
@@ -390,12 +390,12 @@
         },
         "run": {
           "mode": "remote",
-          "url": "https://accounting.plugins.openpadel.org/v1"
+          "url": "https://accounting.plugins.openpadel.dev/v1"
         }
       },
       "release": {
-        "url": "https://github.com/openpadel/plugin-accounting-export/releases/download/v0.1.0/accounting-export-0.1.0.tar.gz",
-        "sha256": "500ac3ef3b1a0cf76e713daff109762300335528b9673683c26274537d62e28f"
+        "url": "https://github.com/onchainexpat/openpadel/releases/download/plugin-accounting-export-v0.1.0/accounting-export-0.1.0.tar.gz",
+        "sha256": "53b86b464c8bcf298228e45c473b06e706411d35f5e2ef01e3779ca62fa40703"
       },
       "reviewed": {
         "by": "openPadel",
@@ -409,7 +409,7 @@
         "name": "court-camera",
         "publisher": "openPadel examples",
         "version": "0.1.0",
-        "homepage": "https://github.com/openpadel/plugin-court-camera",
+        "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/court-camera",
         "licence": "MIT",
         "description": {
           "en": "Shows the club's court cameras' highlights and game stats on each game's page, for its players and staff. A camera system posts when a clip is ready, and the plugin finds the booking on that court at that time.",
@@ -535,12 +535,12 @@
         },
         "run": {
           "mode": "remote",
-          "url": "https://cameras.plugins.openpadel.org/v1"
+          "url": "https://cameras.plugins.openpadel.dev/v1"
         }
       },
       "release": {
-        "url": "https://github.com/openpadel/plugin-court-camera/releases/download/v0.1.0/court-camera-0.1.0.tar.gz",
-        "sha256": "1a8ddb5897ba5e303a2d862ec81d43ec7bcab16ef103bb2a5f4a3a6df1a52c23"
+        "url": "https://github.com/onchainexpat/openpadel/releases/download/plugin-court-camera-v0.1.0/court-camera-0.1.0.tar.gz",
+        "sha256": "410e5e137310af81a69e26925f033df6f7ea53afeac66376bf386dfbb5b246db"
       },
       "reviewed": {
         "by": "openPadel",
@@ -554,7 +554,7 @@
         "name": "court-lights",
         "publisher": "openPadel examples",
         "version": "0.1.0",
-        "homepage": "https://github.com/openpadel/plugin-court-lights",
+        "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/court-lights",
         "licence": "MIT",
         "description": {
           "en": "Turns a court's lights on in Home Assistant a few minutes before each booking and off after it ends.",
@@ -670,12 +670,12 @@
         "health": "/health",
         "run": {
           "mode": "remote",
-          "url": "https://lights.plugins.openpadel.org/v1"
+          "url": "https://lights.plugins.openpadel.dev/v1"
         }
       },
       "release": {
-        "url": "https://github.com/openpadel/plugin-court-lights/releases/download/v0.1.0/court-lights-0.1.0.tar.gz",
-        "sha256": "ee71277fd8f81c4822ac95c68f30c42d121f9f6d0ea75cfa21b2d5fe03fca463"
+        "url": "https://github.com/onchainexpat/openpadel/releases/download/plugin-court-lights-v0.1.0/court-lights-0.1.0.tar.gz",
+        "sha256": "29d46080b800b848f0f2585a173bfea6fa093611e12758fef6063c8cad393f62"
       },
       "reviewed": {
         "by": "openPadel",
@@ -689,7 +689,7 @@
         "name": "klaviyo",
         "publisher": "openPadel examples",
         "version": "0.1.0",
-        "homepage": "https://github.com/openpadel/plugin-klaviyo",
+        "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/klaviyo",
         "licence": "MIT",
         "description": {
           "en": "Keeps a Klaviyo list of the members who said yes to club news by email: on it when they say yes, off it as soon as they say no or their account is deleted, and checked against the club every day.",
@@ -755,12 +755,12 @@
         "health": "/health",
         "run": {
           "mode": "remote",
-          "url": "https://klaviyo.plugins.openpadel.org/v1"
+          "url": "https://klaviyo.plugins.openpadel.dev/v1"
         }
       },
       "release": {
-        "url": "https://github.com/openpadel/plugin-klaviyo/releases/download/v0.1.0/klaviyo-0.1.0.tar.gz",
-        "sha256": "895e789c5a0cfdeda62b2d418a50e07f19c1c33e171f28faa5e45202e5c18f63"
+        "url": "https://github.com/onchainexpat/openpadel/releases/download/plugin-klaviyo-v0.1.0/klaviyo-0.1.0.tar.gz",
+        "sha256": "ea8ec0c7b61edb7e411776315bc9c4a26665fb18f08055778e05bc9771a5415a"
       },
       "reviewed": {
         "by": "openPadel",
@@ -774,7 +774,7 @@
         "name": "whatsapp",
         "publisher": "openPadel examples",
         "version": "0.1.0",
-        "homepage": "https://github.com/openpadel/plugin-whatsapp",
+        "homepage": "https://github.com/onchainexpat/openpadel/tree/main/plugins/whatsapp",
         "licence": "MIT",
         "description": {
           "en": "Sends the club's messages by WhatsApp to members who said yes in the app, through the club's own WhatsApp Business account, and passes their replies to the front desk.",
@@ -925,11 +925,11 @@
         },
         "run": {
           "mode": "remote",
-          "url": "https://whatsapp.plugins.openpadel.org/v1"
+          "url": "https://whatsapp.plugins.openpadel.dev/v1"
         }
       },
       "release": {
-        "url": "https://github.com/openpadel/plugin-whatsapp/releases/download/v0.1.0/whatsapp-0.1.0.tar.gz",
+        "url": "https://github.com/onchainexpat/openpadel/releases/download/plugin-whatsapp-v0.1.0/whatsapp-0.1.0.tar.gz",
         "sha256": "dd515f54819fd8ce44399df19e318b6f1dbdee3f26f5bc0b7fe97aae1942f325"
       },
       "reviewed": {

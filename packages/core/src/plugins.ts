@@ -68,7 +68,7 @@ export function pluginIo(): PluginIo { return io; }
 
 // ---- The catalog ----
 /** openPadel's own reviewed catalog (its repository is round F's): the one a club's doctor doesn't warn about. */
-export const OPENPADEL_CATALOG_URL = "https://plugins.openpadel.org/catalog.json";
+export const OPENPADEL_CATALOG_URL = "https://plugins.openpadel.dev/catalog.json";
 /** Whether the catalog the server is set to is someone else's: everything in it would count as reviewed. */
 export const ownCatalog = (url: string | null | undefined) => !url?.trim() || url.trim().replace(/\/+$/, "") === OPENPADEL_CATALOG_URL;
 export interface CatalogEntry { manifest: Manifest }

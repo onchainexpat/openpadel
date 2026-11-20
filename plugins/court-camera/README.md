@@ -180,7 +180,7 @@ club's door, registration, matching, the card, retries, health, packaging) stays
 Make the release:
 
 ```bash
-node tools/pack.ts --release-url https://github.com/openpadel/plugin-court-camera/releases/download/v0.1.0/court-camera-0.1.0.tar.gz
+node tools/pack.ts --release-url https://github.com/onchainexpat/openpadel/releases/download/plugin-court-camera-v0.1.0/court-camera-0.1.0.tar.gz
 ```
 
 It writes `dist/court-camera-0.1.0.tar.gz` (the same bytes every time from the same files) and
