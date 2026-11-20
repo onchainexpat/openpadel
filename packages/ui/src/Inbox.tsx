@@ -1,5 +1,7 @@
 // The in-app inbox: everything Kumi told this person, newest first. Opening it marks it all read.
 import { useEffect, useState } from "preact/hooks";
+import { Skeleton } from "./Skeleton.tsx";
+import { Icon } from "./Icon.tsx";
 import { api, shortTime, t, unread } from "./state.ts";
 /** A link to a file the server sends (a data download), not a page: the browser fetches it, the app's router doesn't take it. */
 const isFile = (href: string) => /^\/my\/privacy\/export\/|\.(csv|ics|json|zip)(\?|$)/.test(href);
@@ -14,7 +16,7 @@ export function Inbox() {
       if (r.messages.some((m) => !m.read_at)) api("/my/inbox/read", {}).then(() => { unread.value = 0; }).catch(() => {});
     });
   }, []);
-  if (!box) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!box) return <Skeleton />;
   return (
     <main>
       <h1>{t("ui.inbox_title")}</h1>
@@ -32,8 +34,8 @@ export function Inbox() {
 }
 
 /** The nav link, with how many are unread. */
-export function InboxLink({ current }: { current?: "page" } = {}) {
+export function InboxLink({ current, icon }: { current?: "page"; icon?: boolean } = {}) {
   return <a href="/inbox" aria-current={current} aria-label={unread.value ? `${t("ui.nav_inbox")}, ${t("count.unread", { count: unread.value })}` : undefined}>
-    {t("ui.nav_inbox")}{unread.value > 0 && <span class="badge">{unread.value}</span>}
+    {icon ? <><Icon name="inbox" /><span class="nav-word">{t("ui.nav_inbox")}</span></> : t("ui.nav_inbox")}{unread.value > 0 && <span class="badge">{unread.value}</span>}
   </a>;
 }

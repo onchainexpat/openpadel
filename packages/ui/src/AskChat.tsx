@@ -3,6 +3,7 @@
 // opens over any page (Ctrl+K); in the members' app it sits on the Ask tab, with "Ask a person" to hand what they asked
 // to the front desk as a question to the club.
 import { useEffect, useRef, useState } from "preact/hooks";
+import { Skeleton } from "./Skeleton.tsx";
 import { api, ApiError, clubTime, lang, me, t } from "./state.ts";
 import { dollars, usePreview, type Pending } from "./Preview.tsx";
 import type { AskStatus } from "./ask_status.ts";
@@ -53,7 +54,7 @@ export function AskChat({ surface, status: given, autoFocus }: { surface: "staff
     void preview("question.ask", { person_id: me.value!.person.id, body });
   };
 
-  if (!status) return error ? <p class="error" role="alert">{error}</p> : <p class="meta">{t("ui.loading")}</p>;
+  if (!status) return error ? <p class="error" role="alert">{error}</p> : <Skeleton shape="rows" rows={2} />;
   if (!status.on) return surface === "staff" ? <p class="meta">{t("ui.assistant_off_staff")}</p> : null;
   if (status.turned_off) return <p>{t("ui.assistant_turned_off")} <button type="button" onClick={turnOn}>{t("ui.assistant_turn_on")}</button></p>;
   const cap = status.spending.weekly_cap_cents;

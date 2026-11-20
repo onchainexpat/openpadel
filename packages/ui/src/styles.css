@@ -550,3 +550,42 @@ section.plugin-card:not(.card) { padding: 6px 0 0 10px; }
 /* FileInput: the app's own words for choosing a file; the real input is in the label, visually hidden. */
 .file-input { display: block; } .file-input-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .file-input:focus-within .button { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Icons (Icon.tsx, a few of Lucide's): the text's size and colour. Beside words, never instead of them. .with-icon
+   lines an icon up with the words after it, in a button, a link, a heading or a row's fact. */
+.icon { display: inline-block; flex: none; width: 1em; height: 1em; vertical-align: -0.125em; }
+.with-icon { display: inline-flex; align-items: center; gap: .4em; }
+h2.with-icon { display: flex; }
+h2.with-icon .icon { color: var(--brand-ink); }
+.fact { display: inline-flex; align-items: center; gap: .3em; white-space: nowrap; }
+.fact .icon { color: var(--muted); }
+.facts-line { display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.staff-nav a .icon, .staff-nav button.link .icon { font-size: 18px; color: var(--muted); }
+.staff-nav a[aria-current="page"] .icon { color: inherit; }
+.staff-nav a, .staff-nav button.link { gap: 10px; } .staff-nav .nav-word { flex: 1; min-width: 0; }
+.tabbar .icon, .phone-tabs .icon { font-size: 24px; stroke-width: 1.8; }
+.tab-plus .icon { font-size: 26px; stroke-width: 2.2; }
+.status-chip { display: inline-flex; align-items: center; gap: .3em; }
+.status-chip .icon { font-size: 1.05em; }
+
+/* While a page or a list loads (Skeleton.tsx): bars where the words will be, after a short wait, with a soft shimmer
+   that stops with less motion. Grey from the theme's own colours, so both themes and every club colour suit it. */
+.skel-bar { display: block; height: .9em; margin: .35em 0; border-radius: 6px; background: var(--line);
+  background-image: linear-gradient(90deg, transparent 0, color-mix(in srgb, var(--card) 55%, transparent) 50%, transparent 100%);
+  background-size: 200% 100%; background-repeat: no-repeat; animation: skel-shimmer 1.4s ease-in-out infinite; }
+.skel-shown { animation: skel-in 200ms ease-out both; }
+.skel-title { height: 1.4em; width: 42%; margin: 12px 0 16px; }
+.skel-head { height: 1.1em; width: 38%; margin: 0 0 12px; }
+.skel-row { display: block; padding: 8px 0; border-bottom: 1px solid var(--line); } .skel-row:last-child { border-bottom: 0; }
+.skel-row .skel-text { width: 68%; } .skel-row .skel-meta { width: 40%; height: .75em; }
+.skel-row:nth-child(3n+2) .skel-text { width: 54%; } .skel-row:nth-child(3n+2) .skel-meta { width: 30%; }
+.skel-row:nth-child(3n) .skel-text { width: 76%; } .skel-row:nth-child(3n) .skel-meta { width: 46%; }
+.skel-line { display: inline-block; vertical-align: middle; width: 8em; max-width: 100%; } .skel-line .skel-bar { margin: 0; }
+.skel-rows { padding: 4px 0; }
+@keyframes skel-shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+@keyframes skel-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skel-bar, .skel-shown { animation: none; } }
+/* An icon before words in a button, a link, a tag or a row's line: a little room after it. */
+button > .icon, a.button > .icon, .tag > .icon, .pill > .icon, .item-when > .icon, .item-title > .icon, .icon.lead { margin-inline-end: .4em; }
+.item-when > .icon, .item-title > .icon, .icon.lead { color: var(--muted); }
+.facts-line .fact { white-space: normal; }
+.tab-plus > .icon, .staff-nav .icon { margin: 0; }

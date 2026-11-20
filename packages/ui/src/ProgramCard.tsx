@@ -3,6 +3,7 @@
 import type { ComponentChildren } from "preact";
 import { lang, t, clubTime } from "./state.ts";
 import { dollars } from "./Preview.tsx";
+import { Icon } from "./Icon.tsx";
 
 export type ProgramCardData = { id: string; name: string; capacity: number; booked: number; offered: number; price_cents: number; rated: boolean; level_min: string | null; level_max: string | null;
   refund_window_hours: number; first_start: string | null; min_players: number | null; my_price_cents: number; my_basis: "full" | "member" | "included"; included: { n: number; of: number } | null; members_cents: number | null;
@@ -23,9 +24,10 @@ export function ProgramCard({ p, children }: { p: ProgramCardData; children?: Co
   return (
     <li class="card">
       <div class="summary">{p.name}</div>
-      <div class="meta">{when(p.first_start)} · {priceLine(p)}{p.level_min && p.level_max ? ` · ${t("ui.level_band", { min: p.level_min, max: p.level_max })}` : ""}</div>
+      <div class="meta facts-line"><span class="fact"><Icon name="clock" />{when(p.first_start)}</span><span class="fact"><Icon name="tag" />{priceLine(p)}</span>
+        {p.level_min && p.level_max && <span class="fact"><Icon name="chart-no-axes-column-increasing" />{t("ui.level_band", { min: p.level_min, max: p.level_max })}</span>}</div>
       <div class="meta">{t(p.rated ? "ui.rated_label" : "ui.friendly_label")} · {t("ui.refund_rule", { hours: p.refund_window_hours })}</div>
-      <div class="meta">{p.per_date ? t("ui.per_date_note") : <>{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}{need > 0 ? ` · ${t("ui.needs_more", { count: need })}` : ""}</>}</div>
+      <div class="meta">{p.per_date ? t("ui.per_date_note") : <><Icon name="users" class="lead" />{left > 0 ? t("ui.places_left", { count: left }) : t("ui.full_waitlist")}{need > 0 ? ` · ${t("ui.needs_more", { count: need })}` : ""}</>}</div>
       {children}
     </li>
   );
