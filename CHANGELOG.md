@@ -7,6 +7,24 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## 0.7.3 (2026-11-19)
+
+Two small fixes to the staff app's menu and phone tabs.
+
+### Fixed
+- On a phone, the Approvals tab read "Aprobaciones" in Spanish, too long for its place at the bottom, so it was cut
+  off. The tab now says "Aprobar" (the menu keeps "Aprobaciones"); English is unchanged.
+
+### Changed
+- The guided move from another system ("Moving in", "La mudanza") is in the staff menu while a move is under way: while
+  the club is in practice, or once it has said where it's coming from (Playtomic, CourtReserve, Playbypoint or a
+  spreadsheet), until the move is marked finished. Before, it was only a link from Settings and the Playtomic page, so
+  a club coming from CourtReserve or Playbypoint had to know to look in Settings. It shows to those who may run the
+  move (owners and managers), and Settings still links to it. `/staff/counts` says `moving` for the menu.
+
+### When updating
+- No database change and nothing to set: `deploy/ship.sh`, or on Docker `deploy/docker/update.sh v0.7.3`.
+
 ## 0.7.2 (2026-11-18)
 
 The owner's first sign-in by a one-time link now asks for a second step straight away. Every club set up with
