@@ -7,6 +7,25 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## 0.7.4 (2026-11-20)
+
+Security updates and the project's own addresses, ahead of the repository going public.
+
+### Security
+- The web server's framework (Hono 4.13.16 and its Node adapter 2.1.6) is updated for seven published advisories,
+  most of them about unusual addresses that could slip past checks covering a whole group of pages. openPadel's
+  staff pages weren't open that way (a new test tries those addresses signed out), and now the framework can't
+  let them through either.
+
+### Changed
+- openPadel's plugin catalog and its hosted plugins now live under openpadel.dev
+  (`https://plugins.openpadel.dev/catalog.json`), the project's own domain, and each plugin's page and release are in
+  this repository. Their releases were packed again with the new links, so their SHA-256s changed.
+- The README's status points to the newest release, and tests run on every push to main.
+
+### When updating
+- No database change and nothing to set: `deploy/ship.sh`, or on Docker `deploy/docker/update.sh v0.7.4`.
+
 ## 0.7.3 (2026-11-19)
 
 Two small fixes to the staff app's menu and phone tabs.
