@@ -91,7 +91,7 @@ test("cards: a name's initials, and a course's weeks first date to last", () => 
 
 test("the club's week reads in lines, and today's hours take a special day first", () => {
   const week = [1, 2, 3, 4, 5].map((weekday) => ({ weekday, opens: "07:00", closes: "22:00" })).concat([{ weekday: 6, opens: "08:00", closes: "20:00" }, { weekday: 0, opens: null, closes: null } as any]);
-  assert.deepEqual(weekLines(week, "en-US", { to: "to", closed: "Closed" }).map((r) => ({ ...r, hours: r.hours.replace(/\s/g, " ") })), [{ days: "Mon to Fri", hours: "7:00 AM to 10:00 PM" }, { days: "Sat", hours: "8:00 AM to 8:00 PM" }, { days: "Sun", hours: "Closed" }]);
+  assert.deepEqual(weekLines(week, "en-US", { to: "to", closed: "Closed", allDay: "Open all day" }).map((r) => ({ ...r, hours: r.hours.replace(/\s/g, " ") })), [{ days: "Mon to Fri", hours: "7:00 AM to 10:00 PM" }, { days: "Sat", hours: "8:00 AM to 8:00 PM" }, { days: "Sun", hours: "Closed" }]);
   assert.deepEqual(hoursOn("2026-11-11", week, []), { opens: "07:00", closes: "22:00" });   // a Wednesday
   assert.equal(hoursOn("2026-11-15", week, []), null);                                       // a Sunday
   assert.deepEqual(hoursOn("2026-11-11", week, [{ on_date: "2026-11-11", opens: "10:00", closes: "14:00" }]), { opens: "10:00", closes: "14:00" });

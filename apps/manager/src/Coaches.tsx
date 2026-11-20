@@ -4,7 +4,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
-import { Skeleton, api, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
+import { Skeleton, api, FileInput, dollars, lang, OtherLang, savedIn, t, translationsOf, usePreview } from "@kumi/ui";
 
 type Profile = { bio: string | null; translations?: unknown; level_min: string | null; level_max: string | null; languages: string[]; rates: Record<string, number>; photo: string | null; lessons: boolean; max_players: number };
 type Stretch = { location_id: string; weekday: number; starts: string; ends: string };
@@ -98,7 +98,7 @@ function CoachEdit({ c, d, preview }: { c: Coach; d: Data; preview: Preview }) {
       </form>
       {p && <>
         <h2>{t("ui.photo")}</h2>
-        <label class="small">{t("ui.change_photo")}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => photo(e.currentTarget.files?.[0])} /></label>
+        <FileInput class="small" label={t("ui.change_photo")} accept="image/jpeg,image/png,image/webp" onFile={(f) => photo(f ?? undefined)} />
         {p.photo && <> <button class="small" onClick={() => preview("coach.set_photo", { person_id: c.id, photo: null })}>{t("ui.remove_photo")}</button></>}
         {photoError && <p class="error">{t("ui.photo_failed")}</p>}
 

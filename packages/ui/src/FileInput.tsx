@@ -4,10 +4,13 @@
 import { useState } from "preact/hooks";
 import { t } from "./state.ts";
 
-export function FileInput({ label, accept, onFile }: { label: string; accept: string; onFile: (f: File | null, input: HTMLInputElement) => void }) {
+/** required and describedBy go on the input itself; class on the label (small, for a field beside others). */
+export function FileInput({ label, accept, onFile, required, describedBy, class: extra }: { label: string; accept: string; onFile: (f: File | null, input: HTMLInputElement) => void;
+  required?: boolean; describedBy?: string; class?: string }) {
   const [name, setName] = useState<string | null>(null);
-  return <label class="file-input">{label}
-    <input class="visually-hidden" type="file" accept={accept} onChange={(e) => { const f = e.currentTarget.files?.[0] ?? null; setName(f?.name ?? null); onFile(f, e.currentTarget); }} />
+  return <label class={`file-input${extra ? ` ${extra}` : ""}`}>{label}
+    <input class="visually-hidden" type="file" accept={accept} required={required} aria-describedby={describedBy}
+      onChange={(e) => { const f = e.currentTarget.files?.[0] ?? null; setName(f?.name ?? null); onFile(f, e.currentTarget); }} />
     <span class="file-input-row"><span class="button" aria-hidden="true">{t("ui.file_choose")}</span><span class="meta">{name ?? t("ui.file_none")}</span></span>
   </label>;
 }

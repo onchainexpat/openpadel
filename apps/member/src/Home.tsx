@@ -6,7 +6,7 @@ import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import { api, club, clubTime, EmptyState, Icon, Illustration, lang, serverNow, Skeleton, t, type IconName } from "@kumi/ui";
 import { formatLocale, type Key } from "@kumi/i18n/format";
-import { hoursOn, weekLines, clock, type Hours, type Special } from "./hours.ts";
+import { allDay, hoursOn, weekLines, clock, type Hours, type Special } from "./hours.ts";
 import { comingUp, type Upcoming } from "./home_data.ts";
 import type { SoonCounts } from "./whats_on.ts";
 
@@ -45,7 +45,7 @@ export function Home() {
           <h1 id="club-name">{name}</h1>
           {plan && <a class="pill" href="/membership">{t("ui.home_member_pill", { plan })}</a>}
           {loc && <p class="meta">{[totalCourts ? t("ui.home_courts", { count: totalCourts }) : null,
-            info!.locations.length > 1 ? null : today ? t("ui.home_open_today", { from: clock(today.opens, locale), to: clock(today.closes, locale) }) : t("ui.home_closed_today")].filter(Boolean).join(" · ")}</p>}
+            info!.locations.length > 1 ? null : today ? allDay(today.opens, today.closes) ? t("ui.home_open_all_day") : t("ui.home_open_today", { from: clock(today.opens, locale), to: clock(today.closes, locale) }) : t("ui.home_closed_today")].filter(Boolean).join(" · ")}</p>}
         </div>
       </section>
 
@@ -83,7 +83,7 @@ export function Home() {
           {l.courts > 0 && <p class="meta">{t("ui.home_courts", { count: l.courts })}{l.kinds.length ? `: ${l.kinds.map((k) => kindName(k)).filter(Boolean).join(" · ")}` : ""}</p>}
           {l.hours.length > 0 && <>
             <h3 class="small-head">{t("ui.hours_title")}</h3>
-            <dl class="hours">{weekLines(l.hours, locale, { to: t("ui.to_word"), closed: t("ui.closed") }).map((r) => <><dt>{r.days}</dt><dd>{r.hours}</dd></>)}</dl>
+            <dl class="hours">{weekLines(l.hours, locale, { to: t("ui.to_word"), closed: t("ui.closed"), allDay: t("ui.open_all_day") }).map((r) => <><dt>{r.days}</dt><dd>{r.hours}</dd></>)}</dl>
           </>}
           {l.address && <p><a class="button" href={mapLink(l.address)} target="_blank" rel="noopener noreferrer">{t("ui.home_directions")}</a></p>}
         </div>)}

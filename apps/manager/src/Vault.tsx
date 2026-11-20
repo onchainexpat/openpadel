@@ -1,7 +1,7 @@
 // The club vault: keys and small documents only the owner sees, sealed with the server's key. A value or file
 // goes to the server first, then the usual preview and confirm. A secret is never shown again, only its end.
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, ApiError, lang, needsStep, t, usePreview, useStepUp, clubTime } from "@kumi/ui";
+import { Skeleton, api, FileInput, ApiError, lang, needsStep, t, usePreview, useStepUp, clubTime } from "@kumi/ui";
 
 type Item = { id: string; kind: "secret" | "document"; name: string; note: string | null; last4: string | null; filename: string | null; size_bytes: number;
   created_at: string; updated_at: string; by: string | null; kept_by_plugin?: string | null; downloads: { at: string; by: string | null }[] };
@@ -100,7 +100,7 @@ function AddDoc({ maxMb, onSend }: { maxMb: number; onSend: (name: string, data:
     <form class="card-form" onSubmit={async (e) => { e.preventDefault(); if (file) onSend(name.trim(), await readFile(file), file.name, note.trim()); }}>
       <h3>{t("ui.vault_add_document")}</h3>
       <label>{t("ui.vault_name")}<input value={name} maxLength={80} required onInput={(e) => setName(e.currentTarget.value)} /></label>
-      <label>{t("ui.vault_file", { mb: maxMb })}<input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" required onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)} /></label>
+      <FileInput label={t("ui.vault_file", { mb: maxMb })} accept="application/pdf,image/jpeg,image/png,image/webp" required onFile={(f) => setFile(f)} />
       <label>{t("ui.vault_note")}<input value={note} maxLength={300} onInput={(e) => setNote(e.currentTarget.value)} /></label>
       <button class="primary" type="submit" disabled={!name.trim() || !file}>{t("ui.preview")}</button>
     </form>
@@ -121,8 +121,8 @@ function ReplaceSecret({ onSend }: { onSend: (value: string) => void }) {
 function ReplaceDoc({ onSend }: { onSend: (data: string, filename: string) => void }) {
   const [open, setOpen] = useState(false);
   if (!open) return <button class="small" onClick={() => setOpen(true)}>{t("ui.vault_replace")}</button>;
-  return <input type="file" aria-label={t("ui.vault_new_file")} accept="application/pdf,image/jpeg,image/png,image/webp"
-    onChange={async (e) => { const f = e.currentTarget.files?.[0]; if (f) onSend(await readFile(f), f.name); }} />;
+  return <FileInput label={t("ui.vault_new_file")} accept="application/pdf,image/jpeg,image/png,image/webp"
+    onFile={async (f) => { if (f) onSend(await readFile(f), f.name); }} />;
 }
 
 /** One key a plugin asked for: what it is, where the owner gets it, and the field for it (its name is the plugin's own). */

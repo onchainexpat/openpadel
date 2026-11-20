@@ -65,8 +65,7 @@ export function People() {
 
   const add = (e: Event) => { e.preventDefault(); preview("person.create", { display_name: f.display_name, email: f.email || undefined, locale: f.locale }); };
   // A CSV is sent as its text, an Excel workbook as its bytes: the server reads either (and keeps neither).
-  const pick = async (e: Event) => {
-    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+  const pick = async (file: File | null) => {
     if (!file) return;
     setReading(true); setCsv(null);
     try {
@@ -104,7 +103,7 @@ export function People() {
           <label>{t("ui.import_from")}<select value={from} onChange={(e) => { setFrom(e.currentTarget.value as "" | "playbypoint"); setCsv(null); }}>
             <option value="">{t("ui.import_from_any")}</option><option value="playbypoint">{t("ui.import_from_playbypoint")}</option></select></label>
           {from === "playbypoint" && <p class="meta">{t("ui.moving_playbypoint_unverified")}</p>}
-          <input key={from} type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label={t("ui.import_people")} onChange={pick} />
+          <FileInput key={from} label={t("ui.import_people")} accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onFile={pick} />
           {reading && <p class="meta" role="status">{t("ui.reading_file")}</p>}
           {csv?.fatal && <p class="error" role="alert">{csv.fatal}</p>}
           {csv && !csv.fatal && <p>{t("count.ready_to_import", { count: csv.rows.length })}</p>}

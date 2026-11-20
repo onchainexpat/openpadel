@@ -425,8 +425,6 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 .illus-coach { aspect-ratio: 480 / 400; -webkit-mask-image: url("../assets/illustrations/coach.webp"); mask-image: url("../assets/illustrations/coach.webp"); }
 .illus-youre-in { aspect-ratio: 421 / 480; -webkit-mask-image: url("../assets/illustrations/youre-in.webp"); mask-image: url("../assets/illustrations/youre-in.webp"); }
 .illus-court { aspect-ratio: 960 / 448; -webkit-mask-image: url("../assets/illustrations/court.webp"); mask-image: url("../assets/illustrations/court.webp"); }
-@keyframes illus-in { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .illus { animation: none; } }
 .illus-all-done { aspect-ratio: 480 / 456; -webkit-mask-image: url("../assets/illustrations/all-done.webp"); mask-image: url("../assets/illustrations/all-done.webp"); }
 .illus-connectors { aspect-ratio: 480 / 265; -webkit-mask-image: url("../assets/illustrations/connectors.webp"); mask-image: url("../assets/illustrations/connectors.webp"); }
 .illus-family { aspect-ratio: 302 / 480; -webkit-mask-image: url("../assets/illustrations/family.webp"); mask-image: url("../assets/illustrations/family.webp"); }
@@ -442,6 +440,8 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 /* A tall drawing (Illustration.tsx TALL) is drawn narrower, so it stands about as high as a wide one, and stays modest on a phone. */
 .illus-tall { width: clamp(90px, 28vw, 136px); }
 .illus-tall.illus-s { width: clamp(64px, 19vw, 90px); }
+@keyframes illus-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .illus { animation: none; } }
 /* An empty list (EmptyState): the drawing over its words. */
 .empty { text-align: center; }
 .empty p { margin: 12px 0 0; }
@@ -586,6 +586,7 @@ section.plugin-card:not(.card) { padding: 6px 0 0 10px; }
 .connector-ask code { display: block; overflow-wrap: anywhere; margin: 2px 0; }
 /* FileInput: the app's own words for choosing a file; the real input is in the label, visually hidden. */
 .file-input { display: block; } .file-input-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.file-input-row .button { display: inline-block; padding: 6px 12px; font-size: 14px; font-weight: 600; border: 1px solid var(--brand-ink); border-radius: 8px; color: var(--brand-ink); background: var(--card); cursor: pointer; }
 .file-input:focus-within .button { outline: 2px solid var(--brand); outline-offset: 2px; }
 /* Icons (Icon.tsx, a few of Lucide's): the text's size and colour. Beside words, never instead of them. .with-icon
    lines an icon up with the words after it, in a button, a link, a heading or a row's fact. */

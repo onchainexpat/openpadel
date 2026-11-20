@@ -5,7 +5,7 @@ import type { Key } from "@kumi/i18n";
 import { amountInput, amountPattern, capFor, fromMajor, money, parseDollars, toMajor, formatLocale, weekOrder } from "@kumi/i18n/format";
 import { COMING_FROM, comingFrom } from "@kumi/i18n/presets";
 import { AMENITIES } from "@kumi/i18n/amenities";
-import { Icon, Skeleton, api, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, RunsOn, savedIn, t, translationsOf, usePreview, type Club, applyBrand, applyTitle } from "@kumi/ui";
+import { Icon, Skeleton, api, FileInput, club as clubSignal, clubMoment, dollars, lang, mayDo, me, OtherLang, RunsOn, savedIn, t, translationsOf, usePreview, type Club, applyBrand, applyTitle } from "@kumi/ui";
 import { ClubExport } from "./ClubExport.tsx";
 
 type Hours = { weekday: number; opens: string | null; closes: string | null };
@@ -162,8 +162,8 @@ function LogoField({ has, madeFor, send }: { has: boolean; madeFor: "light" | "d
       <legend>{t("ui.logo")}</legend>
       {has && clubSignal.value?.logo ? <img class="logo-now" src={clubSignal.value.logo} alt="" width={64} height={64} /> : <p class="meta">{t("ui.logo_none")}</p>}
       <p class="meta" id="logo-help">{t("ui.logo_hint")}</p>
-      <label>{t("ui.logo_choose")}<input type="file" accept=".svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg" aria-describedby="logo-help"
-        onChange={(e) => { const f = e.currentTarget.files?.[0]; e.currentTarget.value = ""; void pick(f); }} /></label>
+      <FileInput label={t("ui.logo_choose")} accept=".svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg" describedBy="logo-help"
+        onFile={(f, input) => { input.value = ""; void pick(f ?? undefined); }} />
       <label>{t("ui.logo_for")}<select value={forWhat} aria-describedby="logo-for-help" onChange={(e) => setFor(e.currentTarget.value as "" | "light" | "dark")}>
         <option value="">{t("ui.logo_for_read")}</option><option value="light">{t("ui.logo_for_light")}</option><option value="dark">{t("ui.logo_for_dark")}</option></select></label>
       <p class="meta" id="logo-for-help">{t("ui.logo_for_hint")}</p>

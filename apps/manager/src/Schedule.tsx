@@ -2,14 +2,18 @@
 // with its list of players (and who came). A lesson can be called off from here; its players get all their
 // money back. Their calendar link sits on top: a phone's calendar subscribes to it.
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, EmptyState, lang, t, usePreview, serverNow } from "@kumi/ui";
+import { Skeleton, api, EmptyState, lang, me, t, usePreview, serverNow } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 
 type Item = { kind: "lesson" | "session"; id: string; start: string; end: string; court?: string; players_names?: string | null; code?: string; name?: string; program_id?: string; booked?: number };
 
+/** Only a coach has a calendar link (calendar.ts): for anyone else (an owner opening the page) it isn't asked for. */
+export const hasCalendarLink = (roles: { key: string }[] | undefined) => Boolean(roles?.some((r) => r.key === "coach"));
+
 function CalendarLink() {
   const [link, setLink] = useState<{ path: string | null } | null>(null), [copied, setCopied] = useState(false), [asked, setAsked] = useState(false);
-  useEffect(() => { api<{ path: string | null }>("/staff/calendar-link").then(setLink).catch(() => setLink(null)); }, []);
+  const coach = hasCalendarLink(me.value?.roles);
+  useEffect(() => { if (coach) api<{ path: string | null }>("/staff/calendar-link").then(setLink).catch(() => setLink(null)); }, [coach]);
   if (!link) return null;
   const url = link.path ? `${location.origin}${link.path}` : "";
   const make = async () => { setLink(await api<{ path: string }>("/staff/calendar-link", {})); setCopied(false); setAsked(false); };

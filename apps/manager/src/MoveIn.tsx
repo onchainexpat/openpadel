@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, FileInput, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 
 type Benefit = { name: string; people: number };
 type Upload = { id: string; sha256: string; file_name: string | null; at: string; rows: number; uploaded_by: string | null; erased: number; wallet_columns: { ref: string; name: string }[]; problems: { line: number; text: string }[]; benefits: Benefit[] };
@@ -21,8 +21,7 @@ export function MoveIn() {
   if (!allowed) return <main class="card"><p>{t("ui.not_for_your_role")}</p></main>;
   if (!s) return <Skeleton />;
   const fmt = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
-  const pick = async (e: Event) => {
-    const f = (e.currentTarget as HTMLInputElement).files?.[0];
+  const pick = async (f: File | null) => {
     if (f) await preview("playtomic.upload", { csv: await f.text(), file_name: f.name.slice(0, 200) });
   };
   const u = s.upload;
@@ -44,7 +43,7 @@ export function MoveIn() {
           {s.players_error && <p class="error" role="alert">{t("ui.movein_read_failed", { error: s.players_error })}</p>}
           {!reading && <button onClick={() => preview("playtomic.read_players", {})}>{t("ui.movein_read_now")}</button>}
         </> : <p class="meta">{t("ui.movein_no_keys")}</p>}
-        <label>{t("ui.movein_file")}<input type="file" accept=".csv,text/csv" onChange={pick} /></label>
+        <FileInput label={t("ui.movein_file")} accept=".csv,text/csv" onFile={pick} />
         {u && <p>{t("ui.movein_upload_read", { name: u.file_name ?? "CSV", when: fmt(u.at), by: u.uploaded_by ?? "-", players: t("count.movein_rows", { count: u.rows }) })}</p>}
         {u && u.erased > 0 && <p class="meta">{t("plan.movein_erased", { count: u.erased })}</p>}
         {u && u.problems.length > 0 && <><p class="meta">{t("count.lines_skipped", { count: u.problems.length })}</p><ul class="meta">{u.problems.slice(0, 20).map((p) => <li>{p.text}</li>)}</ul></>}

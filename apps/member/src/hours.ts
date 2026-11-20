@@ -6,12 +6,17 @@ export type Special = { on_date: string; opens: string | null; closes: string | 
 
 const ORDER = [1, 2, 3, 4, 5, 6, 0];   // Monday first
 
-/** A clock time ("07:00", "24:00") in the reader's language: "7:00 AM", "07:00". Midnight at the end of a day stays 24:00. */
+/** A clock time ("07:00", "24:00") in the reader's language: "7:00 AM", "07:00". Midnight at the end of a day is
+ *  24:00 where the clock runs to 24 and 12:00 AM where it runs to 12, so one line never mixes the two. */
 export function clock(hm: string, locale: string): string {
   const [h, m] = hm.split(":").map(Number) as [number, number];
-  if (h >= 24) return hm.slice(0, 5);
-  return new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 5, h, m)));
+  const f = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+  if (h >= 24) return twelveHour(locale) ? f.format(new Date(Date.UTC(2026, 0, 5, 0, m))) : hm.slice(0, 5);
+  return f.format(new Date(Date.UTC(2026, 0, 5, h, m)));
 }
+const twelveHour = (locale: string) => /h1[12]/.test(new Intl.DateTimeFormat(locale, { hour: "numeric", timeZone: "UTC" }).resolvedOptions().hourCycle ?? "");
+/** Open from midnight to midnight: said "all day", not as two times. */
+export const allDay = (opens: string | null, closes: string | null) => opens === "00:00" && (closes === "24:00" || closes === "00:00");
 
 /** A weekday's short name (0 is Sunday). */
 export function dayName(w: number, locale: string): string {
@@ -19,9 +24,9 @@ export function dayName(w: number, locale: string): string {
 }
 
 /** The week in lines: next-door days with the same hours share one ("Mon to Fri" once there are three or more).
- *  `to` joins two days or two times ("to", "a"), `closed` is a closed day. */
-export function weekLines(days: Hours[], locale: string, words: { to: string; closed: string }): { days: string; hours: string }[] {
-  const text = (d: Hours | undefined) => (d?.opens && d.closes ? `${clock(d.opens, locale)} ${words.to} ${clock(d.closes, locale)}` : words.closed);
+ *  `to` joins two days or two times ("to", "a"), `closed` is a closed day, `allDay` one open midnight to midnight. */
+export function weekLines(days: Hours[], locale: string, words: { to: string; closed: string; allDay: string }): { days: string; hours: string }[] {
+  const text = (d: Hours | undefined) => (d?.opens && d.closes ? allDay(d.opens, d.closes) ? words.allDay : `${clock(d.opens, locale)} ${words.to} ${clock(d.closes, locale)}` : words.closed);
   const groups: { days: number[]; hours: string }[] = [];
   for (const w of ORDER) {
     const hours = text(days.find((d) => d.weekday === w)), last = groups.at(-1);
