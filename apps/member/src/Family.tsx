@@ -4,7 +4,7 @@
 // they ask for, and saves that card; a kid with a login sees their own rules and requests here.
 // Loaded only when one of these pages is opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
-import { Icon, Skeleton, AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
+import { Icon, Skeleton, AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow, EmptyState } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
 import { BringLevel, ClaimsList, type L } from "./MyLevel.tsx";
 import type { Key } from "@kumi/i18n";
@@ -63,7 +63,7 @@ function ParentFamily() {
     <main>
       <h1>{t("ui.family_title")}</h1>
       {sheet}
-      {!h?.juniors.length && parent && <p class="card">{t("ui.family_none")}</p>}
+      {!h?.juniors.length && parent && <EmptyState art="family" size="s">{t("ui.family_none")}</EmptyState>}
       {h && <section class="card">
         <h2>{t("ui.family_adults")}</h2>
         <ul class="plain">{[...h.adults, ...h.members].map((a) => <li class="row"><span>{a.display_name}{a.me ? ` (${t("ui.you_label")})` : ""}</span></li>)}</ul>

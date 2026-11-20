@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, ApiError, clubTime, FileInput, lang, me, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, ApiError, clubTime, FileInput, lang, me, t, usePreview, EmptyState } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { moveOf } from "./level_moves.ts";
 
@@ -126,7 +126,7 @@ export function MyLevel() {
     <main>
       <h1>{t("ui.nav_level")}</h1>
       {sheet}
-      {!d.rating ? <p class="card">{t("ui.level_not_yet")}</p> : <section class="card">
+      {!d.rating ? <EmptyState art="level" size="s">{t("ui.level_not_yet")}</EmptyState> : <section class="card">
         {/* Settled once the model is sure enough of it; provisional (still settling) until then (levels.ts). */}
         <span class={`tag${d.rating.provisional ? "" : " on"}`}>{t(d.rating.provisional ? "ui.provisional" : "ui.level_settled")}</span>
         <p class="big">{d.rating.level}</p>

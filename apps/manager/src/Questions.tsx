@@ -4,7 +4,7 @@
 // switched-on ones as Common questions before they ask.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation, useRoute } from "preact-iso";
-import { Skeleton, api, lang, mayDo, t, usePreview, clubTime } from "@kumi/ui";
+import { Skeleton, api, lang, mayDo, t, usePreview, clubTime, EmptyState } from "@kumi/ui";
 
 type Status = "open" | "answered" | "closed";
 type Row = { id: string; status: Status; waiting_since: string | null; alerted_at: string | null; created_at: string; asker: string; about: string | null; assignee: string | null; first: string; last_side: string | null };
@@ -28,7 +28,7 @@ export function Questions() {
       <h1>{t("ui.questions_title")}</h1>
       <p class="chips">{VIEWS.map(([v, k]) => <a class={v === view ? "chip on" : "chip"} href={`/questions?view=${v}`}>{t(k)}</a>)} <a href="/facts">{t("ui.club_facts")}</a></p>
       <section class="card">
-        {!rows ? <Skeleton shape="rows" /> : !rows.length ? <p class="meta">{t("ui.q_none")}</p> : <ul class="plain">{rows.map((q) =>
+        {!rows ? <Skeleton shape="rows" /> : !rows.length ? view === "waiting" ? <EmptyState art="all-done" size="s" bare class="meta">{t("ui.q_none_waiting")}</EmptyState> : <p class="meta">{t("ui.q_none")}</p> : <ul class="plain">{rows.map((q) =>
           <li key={q.id} class="row"><span><a href={`/questions/${q.id}`}>{q.first}</a><br />
             <span class="meta">{q.about ? `${q.asker} (${t("ui.question_about", { name: q.about })})` : q.asker}
               {q.status === "open" && q.waiting_since ? ` · ${t("ui.q_waiting_since", { time: when(q.waiting_since) })}` : ` · ${when(q.created_at)}`}

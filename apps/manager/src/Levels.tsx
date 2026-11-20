@@ -3,7 +3,7 @@
 // keeping the level (it leaves the queue) or changing it with a reason (players who asked are told either way); a change
 // staff made can be undone from the Changes tab, as from Changes. Beside it, how levels work here.
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, lang, me, t, usePreview, clubTime } from "@kumi/ui";
+import { Skeleton, api, lang, me, t, usePreview, clubTime, EmptyState } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { Pager, Tabs } from "./lists.tsx";
 import { ScoreCard, type Score } from "./Scores.tsx";
@@ -157,7 +157,7 @@ export function Levels() {
         <div>
           <Tabs label={t("ui.nav_levels")} tabs={tabs} on={tab} pick={setTab} id="levels" />
           <div role="tabpanel" tabIndex={0} id={`levels-panel-${tab}`} aria-labelledby={`levels-tab-${tab}`} class="tab-panel">
-            {tab === "review" && (!items.length ? <p class="card meta">{t("ui.queue_empty")}</p>
+            {tab === "review" && (!items.length ? <EmptyState art="all-done" size="s" class="meta">{t("ui.queue_empty")}</EmptyState>
               : <ul class="plain">{items.map((x) => <Answer key={x.key} item={x} preview={preview} day={day} />)}</ul>)}
             {tab === "players" && <AllPlayers />}
             {tab === "changes" && <section class="card">{!changes ? <Skeleton shape="rows" /> : !changes.length ? <p class="meta">{t("ui.level_changes_none")}</p>

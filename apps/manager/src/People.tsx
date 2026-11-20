@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
 import type { Key, Lang } from "@kumi/i18n";
 import { formatLocale } from "@kumi/i18n/format";
-import { Icon, Skeleton, api, clubTime, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { Icon, Skeleton, api, FileInput, clubTime, lang, mayDo, me, t, usePreview, EmptyState } from "@kumi/ui";
 import { initials, Pager, Tabs } from "./lists.tsx";
 import { CUSTOMER_COLUMNS, ordered, type CustomerColumn } from "./presets.ts";
 import { label, preset } from "./words.ts";
@@ -128,7 +128,7 @@ export function People() {
           <option value="">{t("ui.any_membership")}</option><option value="any">{t("ui.has_membership")}</option>
           {list.plans.map((x) => <option value={x.id}>{x.name}</option>)}<option value="none">{t("ui.not_a_member")}</option></select></label>}
       </div>
-      {list === null ? <Skeleton shape="rows" rows={6} /> : list.rows.length === 0 ? <p class="card meta">{t("ui.no_people")}</p> : <>
+      {list === null ? <Skeleton shape="rows" rows={6} /> : list.rows.length === 0 ? <EmptyState art="no-results" size="s" class="meta">{t("ui.no_people")}</EmptyState> : <>
         <div class="table-scroll table-box">
           <table class="data">
             <caption class="sr-only">{label("ui.people_title")}</caption>

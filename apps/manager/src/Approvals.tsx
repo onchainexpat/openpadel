@@ -6,7 +6,7 @@
 // no is the same as on Changes (/runs/:id/approve and /decline, with a second step when the change needs one). A role
 // that doesn't read people sees each ask's title, not its summary, and no names.
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, ApiError, clubTime, dollars, lang, loadMe, needsStep, serverNow, t, useBackCloses, useStepUp } from "@kumi/ui";
+import { Skeleton, api, ApiError, clubTime, dollars, lang, loadMe, needsStep, serverNow, t, useBackCloses, useStepUp, EmptyState } from "@kumi/ui";
 import { formatLocale } from "@kumi/i18n/format";
 import { label } from "./words.ts";
 import { Tabs } from "./lists.tsx";
@@ -100,7 +100,7 @@ export function Approvals() {
       {/* What waits (theirs to answer, then their own asks) and the week's answers, a tab each; each tab's list is the same as before. */}
       <Tabs label={t("ui.approvals_lists")} tabs={[["waiting", `${t("ui.changes_waiting")} · ${v.waiting.length}`], ["done", `${t("ui.approvals_done")} · ${v.done.length}`]]} on={tab} pick={(k) => setTab(k as "waiting" | "done")} id="approvals" />
       {tab === "waiting" && <div role="tabpanel" tabIndex={0} id="approvals-panel-waiting" aria-labelledby="approvals-tab-waiting">
-        {v.waiting.length === 0 ? <p class="card">{t("ui.approvals_none")}</p> : <ul class="plain">{v.waiting.map((a) => card(a, true))}</ul>}
+        {v.waiting.length === 0 ? <EmptyState art="all-done" size="s">{t("ui.approvals_none")}</EmptyState> : <ul class="plain">{v.waiting.map((a) => card(a, true))}</ul>}
         {v.mine.length > 0 && <section aria-labelledby="ask-mine"><h2 id="ask-mine">{t("ui.approvals_mine")}</h2><ul class="plain">{v.mine.map((a) => card(a, false))}</ul></section>}
       </div>}
       {tab === "done" && <div role="tabpanel" tabIndex={0} id="approvals-panel-done" aria-labelledby="approvals-tab-done">

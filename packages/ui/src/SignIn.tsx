@@ -4,6 +4,7 @@ import type { Lang } from "@kumi/i18n";
 import { api, ApiError, club, emailedNote, farewell, lang, loadMe, passkeyFailure, t, type Club } from "./state.ts";
 import { protectedPost } from "./pow.ts";
 import { PolicyLinks, shownPolicies } from "./Policies.tsx";
+import { Illustration } from "./Illustration.tsx";
 
 export function SignIn() {
   // By email, or by a code texted to a mobile number when the club texts.
@@ -73,6 +74,7 @@ export function SignIn() {
       <h1>{t("ui.sign_in_title", { club: clubName })}</h1>
       {farewell.value && <p class="note" role="status">{t("ui.account_deleted")}</p>}
       {club.value?.public_page && <p class="meta"><a href="/public">{t("ui.about_the_club")}</a></p>}
+      {!sent && by === "email" && <Illustration name="sign-in" size="s" class="signin-art" />}
       {!sent ? (
         <form onSubmit={send} key={by}>
           {by === "phone"

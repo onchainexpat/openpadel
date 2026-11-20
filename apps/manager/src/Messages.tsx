@@ -3,7 +3,7 @@
 // means whoever matches when it's used; the count beside the filters says who that is now.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { Skeleton, api, lang, mayDo, t, usePreview, clubTime, serverNow, clubMoment } from "@kumi/ui";
+import { Skeleton, api, lang, mayDo, t, usePreview, clubTime, serverNow, clubMoment, EmptyState } from "@kumi/ui";
 
 type Filters = { membership?: string; plan_ids?: string[]; level_min?: number; level_max?: number; tag_ids?: string[]; played_within_days?: number; not_played_days?: number;
   age?: string; lang?: string; program_id?: string; on_date?: string; joined_from?: string; joined_to?: string };
@@ -95,7 +95,7 @@ export function Messages() {
       <h1>{t("ui.messages_title")}</h1>
       <Tabs on="/messages" />
       {sheet}
-      {!rows ? <Skeleton shape="card" /> : !rows.length ? <section class="card"><p class="meta">{t("ui.no_messages")}</p></section> : rows.map((b) => {
+      {!rows ? <Skeleton shape="card" /> : !rows.length ? <EmptyState art="no-messages" size="s" class="meta">{t("ui.no_messages")}</EmptyState> : rows.map((b) => {
         const email = b.counts.email ?? {}, waiting = email.waiting ?? 0;
         return <section class="card" key={b.id}>
           <p><strong>{b.subject}</strong> <span class={b.purpose === "service" ? "badge warn" : "badge"}>{t(b.purpose === "club_news" ? "ui.badge_club_news" : "ui.badge_service")}</span></p>

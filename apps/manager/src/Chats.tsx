@@ -3,7 +3,7 @@
 // again), stop its author posting for a while, or let them post again. Each is in Changes.
 import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
-import { Skeleton, ApiError, api, clubTime, lang, shortTime, t, usePreview } from "@kumi/ui";
+import { Skeleton, ApiError, api, clubTime, lang, shortTime, t, usePreview, EmptyState } from "@kumi/ui";
 
 type Row = { id: string; kind: "booking" | "session"; ref_id: string; title: string; starts_at: string; last_at: string; messages: number; reports: number };
 type Message = { id: string; person_id: string; author: string; at: string; edited: boolean; state: "shown" | "removed" | "hidden"; body: string | null;
@@ -22,7 +22,7 @@ export function Chats() {
       <h1>{t("ui.staff_chats_title")}</h1>
       <section class="card">
         <p class="meta">{t("ui.staff_chats_intro")}</p>
-        {!rows.length ? <p>{t("ui.staff_chats_none")}</p> : <ul class="plain">{rows.map((r) => <li key={r.id} class="row">
+        {!rows.length ? <EmptyState art="no-messages" size="s" bare>{t("ui.staff_chats_none")}</EmptyState> : <ul class="plain">{rows.map((r) => <li key={r.id} class="row">
           <span><a href={`/chats/${r.id}`}>{r.title}</a><br /><span class="meta">{gameWhen(r.starts_at)} · {t("ui.staff_chat_messages", { count: r.messages })}</span></span>
           {r.reports > 0 && <span class="badge warn">{t("ui.staff_chat_reports", { count: r.reports })}</span>}
         </li>)}</ul>}

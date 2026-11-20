@@ -4,15 +4,18 @@
 // only when one is on the page, never with the first screen's code, and one that fails to load shows nothing.
 import type { ComponentChildren } from "preact";
 
-export type IllustrationName = "welcome" | "no-matches" | "no-bookings" | "no-classes" | "coach" | "youre-in" | "court";
+export type IllustrationName = "welcome" | "no-matches" | "no-bookings" | "no-classes" | "coach" | "youre-in" | "court" | "sign-in" | "new-club" | "all-done"
+  | "no-messages" | "oops" | "moving-in" | "connectors" | "friends" | "family" | "level" | "no-results" | "install";
+/** The drawings taller than they're wide: drawn narrower (illus-tall), so each stands about as high as the others. */
+const TALL = new Set<IllustrationName>(["sign-in", "friends", "family", "level", "install"]);
 
 /** tone: "brand" the club's colour as text reads it (the default), "on-brand" the text colour on the club's colour,
  *  "faint" the club's colour, low-key, for behind words. size: "m" about a third of a phone's width, "s" smaller. */
 export function Illustration({ name, tone = "brand", size = "m", class: extra }: { name: IllustrationName; tone?: "brand" | "on-brand" | "faint"; size?: "s" | "m"; class?: string }) {
-  return <span class={`illus illus-${name} illus-${tone} illus-${size}${extra ? ` ${extra}` : ""}`} aria-hidden="true" />;
+  return <span class={`illus illus-${name} illus-${tone} illus-${size}${TALL.has(name) ? " illus-tall" : ""}${extra ? ` ${extra}` : ""}`} aria-hidden="true" />;
 }
 
-/** An empty list's card: its drawing above the words. */
-export function EmptyState({ art, size, class: extra, children }: { art: IllustrationName; size?: "s" | "m"; class?: string; children: ComponentChildren }) {
-  return <div class={`card empty${extra ? ` ${extra}` : ""}`}><Illustration name={art} size={size} /><p>{children}</p></div>;
+/** An empty list's card: its drawing above the words. bare: without the card, for inside one already. */
+export function EmptyState({ art, size, bare, class: extra, children }: { art: IllustrationName; size?: "s" | "m"; bare?: boolean; class?: string; children: ComponentChildren }) {
+  return <div class={`${bare ? "" : "card "}empty${extra ? ` ${extra}` : ""}`}><Illustration name={art} size={size} /><p>{children}</p></div>;
 }

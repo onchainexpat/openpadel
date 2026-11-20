@@ -89,7 +89,7 @@ export function Play() {
       <GenderChips rows={rows} value={gender} onChange={setGender} />
       <MatchAlert />
       {rows.length > 0 && <p class="meta">{t("ui.your_level_is", { level: lv(level ?? null) })}{level == null && <> <a href="/level">{t("ui.set_level")}</a></>}</p>}
-      {rows.length === 0 ? <EmptyState art="no-matches">{t("ui.no_open_matches")}</EmptyState> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
+      {rows.length === 0 ? <EmptyState art="no-matches">{t("ui.no_open_matches")}</EmptyState> : shown.length === 0 && <EmptyState art="no-results" size="s">{t("ui.none_this_day")}</EmptyState>}
       <ul class="items">{shown.map((m) => <li key={m.id}><MatchCard m={m} /></li>)}</ul>
       <p class="meta">{t("ui.open_your_own")}</p>
       <p><a href="/friends">{t("ui.see_friends")}</a></p>

@@ -61,7 +61,7 @@ export function Events() {
       <PlacesToggle value={places} onChange={setPlaces} />
       <GenderChips rows={all} value={gender} onChange={setGender} />
       <ForWhom value={who} onChange={setWho} />
-      {!rows ? <Skeleton shape="card" /> : all.length === 0 ? <p class="card">{t("ui.events_nothing")}</p> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
+      {!rows ? <Skeleton shape="card" /> : all.length === 0 ? <EmptyState art="no-classes">{t("ui.events_nothing")}</EmptyState> : shown.length === 0 && <EmptyState art="no-results" size="s">{t("ui.none_this_day")}</EmptyState>}
       <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} href={`/events/${p.id}${forQuery(who)}`} /></li>)}</ul>
       {/* Links sent before Learn had its own tab named this page for clinics and courses too. */}
       <p><a href="/learn">{t("ui.learn_is_where")}</a></p>
@@ -90,7 +90,7 @@ export function Learn() {
       {level != null ? <p class="meta">{t("ui.learn_for_level", { level: level.toFixed(2) })}</p>
         : level === null && who === me.value!.person.id && <p class="meta">{t("ui.fit_no_level")} <a href="/level">{t("ui.set_level")}</a></p>}
       {!rows ? <Skeleton shape="card" /> : all.length === 0 ? <EmptyState art="no-classes">{t(show === "course" ? "ui.courses_nothing" : "ui.clinics_nothing")}</EmptyState>
-        : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
+        : shown.length === 0 && <EmptyState art="no-results" size="s">{t("ui.none_this_day")}</EmptyState>}
       <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} level={level} href={`/learn/${p.id}${forQuery(who)}`}
         join={canJoin(p) ? () => preview("enrolment.join", { program_id: p.id, person_id: who }) : undefined} /></li>)}</ul>
     </main>

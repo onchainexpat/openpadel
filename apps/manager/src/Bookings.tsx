@@ -105,7 +105,7 @@ export function Bookings() {
           {filter(t("ui.filter_made_in"), made, setMade, MADE.map((x) => [x, t(`ui.made_in_${x}` as Key)]))}
         </div>
         {error && <p class="error" role="alert">{error}</p>}
-        {!list ? <Skeleton shape="rows" rows={6} /> : list.rows.length === 0 ? <EmptyState art="no-bookings" size="s" class="meta">{t("ui.bookings_none")}</EmptyState> : <>
+        {!list ? <Skeleton shape="rows" rows={6} /> : list.rows.length === 0 ? type || status || made ? <EmptyState art="no-results" size="s" class="meta">{t("ui.bookings_none_match")}</EmptyState> : <EmptyState art="no-bookings" size="s" class="meta">{t("ui.bookings_none")}</EmptyState> : <>
           <BookingTable list={list} onOpen={open} />
           <Pager page={list.page} pages={list.pages} go={setPage} shown={list.rows.length} total={list.total} per={25} />
           {list.rows.some((r) => r.type === "playtomic") && <p class="meta">{t("ui.playtomic_copies_note")}</p>}

@@ -4,7 +4,7 @@
 // what it charged, exactly what it changed, its reference, and Undo, or why it can't be undone. Undo previews first.
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { Skeleton, api, ApiError, dollars, lang, loadMe, needsStep, t, clubTime, useBackCloses, useStepUp } from "@kumi/ui";
+import { Skeleton, api, ApiError, dollars, lang, loadMe, needsStep, t, clubTime, useBackCloses, useStepUp, EmptyState } from "@kumi/ui";
 import { SidePanel } from "./Courts.tsx";
 import { viaWords } from "./made_via.ts";
 
@@ -131,7 +131,7 @@ export function Changes() {
         <label class={`filter-chip check${cards ? " on" : ""}`}><input type="checkbox" checked={cards} onChange={(e) => setCards(e.currentTarget.checked)} /><span>{t("ui.changes_plugin_cards")}</span></label>
       </div>
       {waiting.length > 0 && <section><h2>{t("ui.changes_waiting")}</h2><ul class="changes">{waiting.map(row)}</ul></section>}
-      {rows.length === 0 && <p>{t(who || type ? "ui.changes_none_match" : "ui.changes_empty")}</p>}
+      {rows.length === 0 && (who || type ? <EmptyState art="no-results" size="s" class="meta">{t("ui.changes_none_match")}</EmptyState> : <p>{t("ui.changes_empty")}</p>)}
       <ul class="changes">{rest.map(row)}</ul>
       {more && <p><button type="button" onClick={loadMore}>{t("ui.changes_show_more")}</button></p>}
       {picked && <SidePanel narrow onClose={() => setPicked(null)}>

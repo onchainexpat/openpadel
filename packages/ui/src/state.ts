@@ -154,7 +154,9 @@ function unloaded<T extends ComponentType<any>>(load: () => Promise<T>) {
     if (page) return h(page.c, props);
     if (state === "updated") return h("p", { class: "notice" }, t("ui.app_updated"), " ", h("button", { class: "small", onClick: () => location.reload() }, t("ui.reload")));
     const again = () => { setState("trying"); loadPage(load).then((c) => setPage({ c }), async () => setState(await newRelease() ? "updated" : "failed")); };
-    return h("p", { class: "notice" }, t("ui.page_not_loaded"), " ", h("button", { class: "small", disabled: state === "trying", onClick: again }, t("ui.try_again")));
+    // The oops drawing, as Illustration.tsx draws it (this file stays plain TypeScript, which the tests load).
+    return h("div", { class: "card empty page-not-loaded" }, h("span", { class: "illus illus-oops illus-s", "aria-hidden": "true" }),
+      h("p", null, t("ui.page_not_loaded")), h("p", null, h("button", { class: "small", disabled: state === "trying", onClick: again }, t("ui.try_again"))));
   };
 }
 export const t = (key: Key, params?: Params) => {

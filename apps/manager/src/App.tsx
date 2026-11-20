@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, AskChat, Skeleton, club, Icon, type IconName, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses, mayDo } from "@kumi/ui";
+import { api, AskChat, NotFound, Skeleton, club, Icon, type IconName, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses, mayDo } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts, NewBooking, SessionPanel } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
@@ -415,6 +415,7 @@ export function App() {
         <Route path="/messages/new" component={only("messages", Compose)} />
         <Route path="/groups" component={only("messages", Groups)} />
         <Route path="/templates" component={only("messages", Templates)} />
+        <Route default component={NotFound} />
       </Router>
       </Frame>
     </LocationProvider>

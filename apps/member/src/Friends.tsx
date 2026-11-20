@@ -1,7 +1,7 @@
 // Friends: people the member has added and who added them, people they've played with lately (to add),
 // and their own friend link. A friend is someone each has added; only friends save each other match places.
 import { useEffect, useState } from "preact/hooks";
-import { Icon, Skeleton, api, ApiError, me, t, usePreview } from "@kumi/ui";
+import { Icon, Skeleton, api, ApiError, me, t, usePreview, EmptyState } from "@kumi/ui";
 
 type Named = { id: string; display_name: string };
 type Page = { friends: Named[]; added_you: Named[]; you_added: Named[]; played_with: Named[]; code: string };
@@ -29,7 +29,7 @@ function FriendsPage() {
       {f.added_you.length > 0 && <section class="card"><h2>{t("ui.added_you")}</h2>{list(f.added_you, t("ui.add_back"), "friend.add", true)}</section>}
       <section class="card">
         <h2>{t("ui.see_friends")}</h2>
-        {f.friends.length ? list(f.friends, t("ui.remove"), "friend.remove") : <p class="meta">{t("ui.friends_none")}</p>}
+        {f.friends.length ? list(f.friends, t("ui.remove"), "friend.remove") : <EmptyState art="friends" size="s" bare class="meta">{t("ui.friends_none")}</EmptyState>}
         {f.you_added.length > 0 && <><p class="meta">{t("ui.you_added")}</p>{list(f.you_added, t("ui.take_back"), "friend.remove")}</>}
       </section>
       <section class="card">

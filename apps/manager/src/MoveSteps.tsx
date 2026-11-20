@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, clubMoment, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
+import { Illustration, Skeleton, api, clubMoment, clubTime, dollars, lang, mayDo, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { around, MOVE_STEPS, stepMarks, type Step } from "./move_steps.ts";
 
@@ -90,6 +90,7 @@ export function MoveSteps() {
 
       {shown === "connect" && <>
         <section class="card">
+          {!s.source && <Illustration name="moving-in" size="s" class="move-art" />}
           <h2>{t("ui.moving_where")}</h2>
           <div class="move-sources" role="radiogroup" aria-label={t("ui.moving_where")}>
             {SOURCES.map((x) => <button type="button" role="radio" aria-checked={s.source === x} class={s.source === x ? "move-source on" : "move-source"}

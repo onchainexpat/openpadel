@@ -73,3 +73,44 @@ test("Home's faint court drawing leaves the muted words over it at 4.5:1, for an
     }
   }
 });
+
+test("the newer drawings are where the README says, each named in its table, and the tall ones drawn narrower", () => {
+  const where: [string, string, RegExp][] = [
+    ["sign-in", "packages/ui/src/SignIn.tsx", /\{!sent && by === "email" && <Illustration name="sign-in"/],
+    ["new-club", "apps/manager/src/Today.tsx", /<Illustration name="new-club"/],
+    ["all-done", "apps/manager/src/Approvals.tsx", /<EmptyState art="all-done"[^>]*>\{t\("ui\.approvals_none"\)\}/],
+    ["all-done", "apps/manager/src/Questions.tsx", /view === "waiting" \? <EmptyState art="all-done"/],
+    ["all-done", "apps/manager/src/Levels.tsx", /<EmptyState art="all-done"[^>]*>\{t\("ui\.queue_empty"\)\}/],
+    ["no-messages", "packages/ui/src/Inbox.tsx", /<EmptyState art="no-messages"[^>]*>\{t\("ui\.inbox_empty"\)\}/],
+    ["no-messages", "apps/member/src/Chats.tsx", /<EmptyState art="no-messages"[^>]*>\{t\("ui\.chats_none"\)\}/],
+    ["no-messages", "apps/manager/src/Chats.tsx", /<EmptyState art="no-messages"[^>]*>\{t\("ui\.staff_chats_none"\)\}/],
+    ["no-messages", "apps/manager/src/Messages.tsx", /<EmptyState art="no-messages"[^>]*>\{t\("ui\.no_messages"\)\}/],
+    ["oops", "packages/ui/src/NotFound.tsx", /<Illustration name="oops"/],
+    ["oops", "packages/ui/src/state.ts", /class: "illus illus-oops illus-s", "aria-hidden": "true"/],
+    ["moving-in", "apps/manager/src/MoveSteps.tsx", /\{!s\.source && <Illustration name="moving-in"/],
+    ["connectors", "apps/manager/src/Connectors.tsx", /<EmptyState art="connectors"/],
+    ["friends", "apps/member/src/Friends.tsx", /<EmptyState art="friends"/],
+    ["family", "apps/member/src/Family.tsx", /<EmptyState art="family"/],
+    ["level", "apps/member/src/MyLevel.tsx", /!d\.rating \? <EmptyState art="level"/],
+    ["no-results", "apps/manager/src/Bookings.tsx", /type \|\| status \|\| made \? <EmptyState art="no-results"/],
+    ["no-results", "apps/manager/src/People.tsx", /<EmptyState art="no-results"[^>]*>\{t\("ui\.no_people"\)\}/],
+    ["no-results", "apps/manager/src/Changes.tsx", /who \|\| type \? <EmptyState art="no-results"/],
+    ["no-results", "apps/member/src/Programs.tsx", /<EmptyState art="no-results" size="s">\{t\("ui\.none_this_day"\)\}/],
+    ["install", "packages/ui/src/Profile.tsx", /<section class="card install-card">\s*<Illustration name="install"/],
+  ];
+  const readme = read(`${dir}/README.md`);
+  for (const [name, file, rx] of where) {
+    assert.match(read(file), rx, `${name} in ${file}`);
+    assert.match(readme, new RegExp(`\\| \`${name}\\.webp\` \\|`), `${name} has its README row`);
+  }
+  // Both apps: an address they don't have shows the not-found page.
+  for (const a of ["member", "manager"]) assert.match(read(`apps/${a}/src/App.tsx`), /<Route default component=\{NotFound\} \/>/, a);
+  const tall = new Set([...read("packages/ui/src/Illustration.tsx").match(/const TALL = new Set<IllustrationName>\(\[([^\]]+)\]/)![1]!.matchAll(/"([a-z-]+)"/g)].map((m) => m[1]!));
+  const css = read("packages/ui/src/styles.css");
+  for (const n of names) {
+    const [w, h] = css.match(new RegExp(`\\.illus-${n} \\{ aspect-ratio: (\\d+) / (\\d+)`))!.slice(1).map(Number) as [number, number];
+    // A drawing much taller than it's wide is drawn narrower; youre-in (421 by 480) is near enough square to stay as it was.
+    if (h / w > 1.2) assert.ok(tall.has(n), `${n} is tall`);
+  }
+  assert.match(css, /\.illus-tall \{ width: clamp\(/);
+});

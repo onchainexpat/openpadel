@@ -425,9 +425,29 @@ a.button.primary { background: var(--brand); color: var(--on-brand); border-colo
 .illus-court { aspect-ratio: 960 / 448; -webkit-mask-image: url("../assets/illustrations/court.webp"); mask-image: url("../assets/illustrations/court.webp"); }
 @keyframes illus-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .illus { animation: none; } }
+.illus-all-done { aspect-ratio: 480 / 456; -webkit-mask-image: url("../assets/illustrations/all-done.webp"); mask-image: url("../assets/illustrations/all-done.webp"); }
+.illus-connectors { aspect-ratio: 480 / 265; -webkit-mask-image: url("../assets/illustrations/connectors.webp"); mask-image: url("../assets/illustrations/connectors.webp"); }
+.illus-family { aspect-ratio: 302 / 480; -webkit-mask-image: url("../assets/illustrations/family.webp"); mask-image: url("../assets/illustrations/family.webp"); }
+.illus-friends { aspect-ratio: 374 / 480; -webkit-mask-image: url("../assets/illustrations/friends.webp"); mask-image: url("../assets/illustrations/friends.webp"); }
+.illus-install { aspect-ratio: 343 / 480; -webkit-mask-image: url("../assets/illustrations/install.webp"); mask-image: url("../assets/illustrations/install.webp"); }
+.illus-level { aspect-ratio: 337 / 480; -webkit-mask-image: url("../assets/illustrations/level.webp"); mask-image: url("../assets/illustrations/level.webp"); }
+.illus-moving-in { aspect-ratio: 480 / 389; -webkit-mask-image: url("../assets/illustrations/moving-in.webp"); mask-image: url("../assets/illustrations/moving-in.webp"); }
+.illus-new-club { aspect-ratio: 480 / 321; -webkit-mask-image: url("../assets/illustrations/new-club.webp"); mask-image: url("../assets/illustrations/new-club.webp"); }
+.illus-no-messages { aspect-ratio: 480 / 370; -webkit-mask-image: url("../assets/illustrations/no-messages.webp"); mask-image: url("../assets/illustrations/no-messages.webp"); }
+.illus-no-results { aspect-ratio: 480 / 298; -webkit-mask-image: url("../assets/illustrations/no-results.webp"); mask-image: url("../assets/illustrations/no-results.webp"); }
+.illus-oops { aspect-ratio: 480 / 471; -webkit-mask-image: url("../assets/illustrations/oops.webp"); mask-image: url("../assets/illustrations/oops.webp"); }
+.illus-sign-in { aspect-ratio: 414 / 480; -webkit-mask-image: url("../assets/illustrations/sign-in.webp"); mask-image: url("../assets/illustrations/sign-in.webp"); }
+/* A tall drawing (Illustration.tsx TALL) is drawn narrower, so it stands about as high as a wide one, and stays modest on a phone. */
+.illus-tall { width: clamp(90px, 28vw, 136px); }
+.illus-tall.illus-s { width: clamp(64px, 19vw, 90px); }
 /* An empty list (EmptyState): the drawing over its words. */
-.card.empty { text-align: center; }
-.card.empty p { margin: 12px 0 0; }
+.empty { text-align: center; }
+.empty p { margin: 12px 0 0; }
+/* Where the newer drawings sit: over the sign-in's email, on the install offer, at Moving in's start, and on the page
+   for an address the app doesn't have. */
+.signin-art { margin: 0 auto 12px; }
+.install-card .illus, .move-art { margin: 0 auto 8px; }
+.not-found h1 { margin: 16px 0 0; } .not-found .button { display: inline-block; margin-top: 4px; }
 /* The first sign-in's welcome: the drawing between the club's mark and the greeting, rising in with them. */
 .greet .greet-art { width: 156px; margin: -20px auto 28px; animation: greet-rise 600ms 250ms cubic-bezier(.2, .8, .2, 1) both; }
 @media (prefers-reduced-motion: reduce) { .greet .greet-art { animation: none; } }

@@ -6,6 +6,7 @@ import { AccountData } from "./AccountData.tsx";
 import { needsStep, useStepUp } from "./Preview.tsx";
 import { PolicyLinks } from "./Policies.tsx";
 import { RunsOn } from "./RunsOn.tsx";
+import { Illustration } from "./Illustration.tsx";
 import { canSavePasskey, passkeyWords } from "./passkeys.ts";
 import { install, installed, installOffer, onIos } from "./install.ts";
 import { protectedPost } from "./pow.ts";
@@ -219,7 +220,8 @@ function InstallApp() {
   const offer = installOffer.value;
   if (!offer && !onIos()) return null;
   return (
-    <section class="card">
+    <section class="card install-card">
+      <Illustration name="install" size="s" />
       <h2>{t("ui.install_title")}</h2>
       <p class="meta">{t("ui.install_hint", { club: club.value?.name ?? "" })}</p>
       {offer ? <button class="primary" onClick={() => void install().then(setDone)}>{t("ui.install_button")}</button> : <p>{t("ui.install_ios")}</p>}

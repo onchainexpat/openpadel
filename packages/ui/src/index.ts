@@ -16,6 +16,7 @@ export { RunsOn } from "./RunsOn.tsx";
 export { FileInput } from "./FileInput.tsx";
 export { PluginCard, PluginCards, usePluginCards, type PluginCardData } from "./PluginCards.tsx";
 export { Illustration, EmptyState, type IllustrationName } from "./Illustration.tsx";
+export { NotFound } from "./NotFound.tsx";
 // The icon set (a few of Lucide's, ISC: packages/ui/icons) and the shapes shown while something loads.
 export { Icon, StatusIcon, type IconName } from "./Icon.tsx";
 export { statusIcon } from "./status_icon.ts";

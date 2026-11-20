@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { Skeleton, api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, Greeting, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
+import { Skeleton, NotFound, api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, Greeting, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
 import { Home } from "./Home.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
@@ -124,10 +124,11 @@ export function App() {
         <Route path="/chats" component={Chats} />
         <Route path="/chats/:kind/:id" component={ChatThread} />
         <Route path="/profile" component={Profile} />
-        {/* What people type for tournaments and leagues, and any address the app doesn't have: somewhere, never a blank page. */}
+        {/* What people type for tournaments and leagues go there; any other address the app doesn't have says so, with the way
+            back to the start, never a blank page. */}
         <Route path="/tournaments" component={ToCompetitions} />
         <Route path="/leagues" component={ToCompetitions} />
-        <Route default component={ToHome} />
+        <Route default component={NotFound} />
       </Router>
       <TabBar />
     </LocationProvider>
@@ -141,7 +142,6 @@ function Go({ to }: { to: string }) {
   return null;
 }
 const ToCompetitions = () => <Go to="/competitions" />;
-const ToHome = () => <Go to="/" />;
 /** A member who moved in from Playtomic, at their first sign-in: Home opens on the welcome instead, once (the page
  *  notes it seen). A link they followed in (a match, a place) opens as it is; the welcome waits for Home. */
 function ToWelcome() {

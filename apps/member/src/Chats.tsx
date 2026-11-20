@@ -2,7 +2,7 @@
 // players in a game read its chat (and the club); juniors are told plainly why they see none.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
-import { Skeleton, ApiError, api, clubTime, lang, loadChatsUnread, shortTime, t, usePreview } from "@kumi/ui";
+import { Skeleton, ApiError, api, clubTime, lang, loadChatsUnread, shortTime, t, usePreview, EmptyState } from "@kumi/ui";
 
 type Chat = { kind: "booking" | "session"; id: string; title: string; starts_at: string; unread: number; last_at: string | null; muted: boolean; can_post: boolean };
 type List = { off: boolean; junior: boolean; chats: Chat[] };
@@ -30,7 +30,7 @@ export function Chats() {
         : d.junior ? <section class="card"><p>{t("error.chat_junior")}</p></section>
         : <section class="card">
           <p class="meta">{t("ui.chats_intro")}</p>
-          {!d.chats.length ? <p>{t("ui.chats_none")}</p>
+          {!d.chats.length ? <EmptyState art="no-messages" size="s" bare>{t("ui.chats_none")}</EmptyState>
             : <ul class="plain">{d.chats.map((c) => <li key={`${c.kind}:${c.id}`} class="row">
               <span><a href={`/chats/${c.kind}/${c.id}`}>{c.title}</a><br /><span class="meta">{gameWhen(c.starts_at)}{c.muted ? ` · ${t("ui.chat_muted")}` : ""}</span></span>
               {c.unread > 0 && <span class="badge" aria-label={t("count.unread", { count: c.unread })}>{c.unread}</span>}

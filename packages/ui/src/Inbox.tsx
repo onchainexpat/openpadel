@@ -2,6 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { Skeleton } from "./Skeleton.tsx";
 import { Icon } from "./Icon.tsx";
+import { EmptyState } from "./Illustration.tsx";
 import { api, shortTime, t, unread } from "./state.ts";
 /** A link to a file the server sends (a data download), not a page: the browser fetches it, the app's router doesn't take it. */
 const isFile = (href: string) => /^\/my\/privacy\/export\/|\.(csv|ics|json|zip)(\?|$)/.test(href);
@@ -20,7 +21,7 @@ export function Inbox() {
   return (
     <main>
       <h1>{t("ui.inbox_title")}</h1>
-      {box.length === 0 && <section class="card"><p>{t("ui.inbox_empty")}</p></section>}
+      {box.length === 0 && <EmptyState art="no-messages" size="s">{t("ui.inbox_empty")}</EmptyState>}
       {box.map((m) => (
         <section class={m.read_at ? "card" : "card unread"}>
           <p><strong>{m.subject}</strong> <span class="meta">{shortTime(m.created_at)}</span></p>
