@@ -15,6 +15,7 @@ import { ASK_ENDED, checkInOpen, decide, paymentProvider, PLUGIN_OWN, yesesReach
 import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
 import { planLines, saidIn, shortSummary } from "./changes.ts";
+import { gettingStartedView } from "./getting_started.ts";
 
 type Me = { id: string; locale: string } | null;
 /** What reads.ts knows of a reader, handed over so both judge them the same way. */
@@ -50,7 +51,7 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     const reach = await r.reach(id), roles = await r.roles(id), reads = (area: string) => reach.all || reach.areas.includes(area);
     const wide = (area: string) => reach.all || reach.custom.includes(area);
     const money = await seesMoney(db, id);
-    return { reach, reads, money, people: wide("members"), desk: roles.some((k) => DESK_UP.includes(k)),
+    return { reach, reads, money, people: wide("members"), desk: roles.some((k) => DESK_UP.includes(k)), boss: roles.some((k) => k === "owner" || k === "manager"),
       owedSeen: money || (wide("bookings") && await r.mayAnyOf(id, GRID_MONEY, { ownerIds: [] })),
       // A coach with no other staff role has their own schedule, not Today (the staff app gives them no link to it).
       coachOnly: !reach.all && !reach.custom.length };
@@ -312,13 +313,17 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     }) };
   }
 
+  const startedFor = async (l: Lang) => { const g = await gettingStartedView(db, l); return g.hidden_at ? null : g; };
+
   app.get("/staff/today", async (c) => {
     const id = me(c)!.id, o = await lens(id), now = new Date(), l = lang(c);
     // Since the last look the app remembers, kept to the last three days; the start of yesterday evening when there's none.
     const asked = new Date(c.req.query("since") ?? ""), floor = new Date(now.getTime() - SINCE_MAX_HOURS * 3600_000);
     const at = isNaN(asked.getTime()) ? new Date(now.getTime() - 12 * 3600_000) : asked < floor ? floor : asked > now ? now : asked;
     return c.json({ now, time_zone: await clubTz(), people: o.people, needs: o.coachOnly ? [] : await needs(id, o, l, now, true),
-      takings: o.money ? await takings(now) : null, since: await since(id, o, l, at, now), next: !o.coachOnly && o.reads("bookings") ? await nowNext(o, l, now) : null });
+      takings: o.money ? await takings(now) : null, since: await since(id, o, l, at, now), next: !o.coachOnly && o.reads("bookings") ? await nowNext(o, l, now) : null,
+      // A new club's steps (getting_started.ts), for the owner and managers, until they put it away.
+      getting_started: o.boss ? await startedFor(l) : null });
   });
 
   // ---- Money: today's takings, what's owed to the club, refunds and the credit members hold, for the club's money

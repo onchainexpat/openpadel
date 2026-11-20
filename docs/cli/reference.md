@@ -464,7 +464,7 @@ openpadel plugin list
 
 ### openpadel connectors
 
-Connectors. Everything the club plugs into and whether it's working: the built-in services (Stripe, Resend for email, Twilio for texts, Playtomic, offsite backups) judged by openpadel doctor's checks, and each installed plugin, each with its status (on, waiting, attention, off), what it does and may do, its health and last event, and its keys (added with their last four, or missing: never the key). Then the club's agents and people's assistants, and how to connect something new (openpadel plugin search, openpadel plugin info, openpadel plugin install). For the owner and managers.
+Connectors. Everything the club plugs into and whether it's working: the built-in services (Stripe, Resend for email, Twilio for texts, Playtomic, offsite backups) judged by openpadel doctor's checks, and each installed plugin, each with its status (on, waiting, attention, off), what it does and may do, its health and last event, and its keys (added with their last four, or missing: never the key). Then the club's agents and people's assistants, how to connect something new (openpadel plugin search, openpadel plugin info, openpadel plugin install), and getting_started: a new club's steps as Today shows them (details and logo, courts and hours, prices, card payments, email, a membership plan (optional), staff, members, practice mode off), each with whether it's done and the staff app page that does it, and whether the list was put away (openpadel getting-started hide, once every required step is done). For the owner and managers.
 
 Who may: staff (each sees what their staff screens show).
 
@@ -1933,6 +1933,18 @@ Its preview reads: "Round {round} on {court}: {a} to {b}."
 
 ```
 openpadel game score --game-id <id> --a 0 --b 0
+```
+
+### getting-started
+
+#### openpadel getting-started hide
+
+Put Getting started away. Who may: owner, manager.
+
+Its preview reads: "Getting started leaves Today: every step it needs is done. Each one stays where it is, in Settings and Connectors."
+
+```
+openpadel getting-started hide
 ```
 
 ### gift-card

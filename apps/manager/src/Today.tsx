@@ -3,7 +3,7 @@
 // read people; each row links to the page where it's handled. The one change made here is checking in a booking from Now and next, previewed first like any other.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { Skeleton, api, clubTime, coversLocation, dollars, EmptyState, lang, mayDo, me, PluginCards, serverNow, t, usePluginCards, usePreview, type ApiError, type PluginCardData } from "@kumi/ui";
+import { Icon, Illustration, Skeleton, api, club, clubTime, coversLocation, dollars, EmptyState, lang, mayDo, me, PluginCards, serverNow, t, usePluginCards, usePreview, type ApiError, type PluginCardData } from "@kumi/ui";
 import { label } from "./words.ts";
 import { allIn, bookingsIn, checkInInput } from "./check_in.ts";
 
@@ -17,7 +17,10 @@ type TodayView = {
   takings: { total_cents: number; last_week_cents: number; rows: { type: string; cents: number }[] } | null;
   next: { time_zone: string; items: NextItem[] } | null;
   since: { from: string; counts: Partial<Record<"booked" | "cancelled" | "places" | "answered", number>>; changes: { id: string; summary: string; rest?: string | null; by: string; at: string }[] | null; more: number };
+  /** A new club's steps, for the owner and managers until they put it away (getting_started.ts); null otherwise. */
+  getting_started: Started | null;
 };
+type Started = { items: { key: string; done: boolean; optional: boolean; title: string; how: string; page: string | null }[]; done: number; required: number; required_done: number; ready: boolean };
 const ICON: Record<Need["kind"], string> = { approvals: "✓", owed: "$", disputes: "!", levels: "L", questions: "?", cover: "C", failed: "$", alerts: "!" };
 
 /** When this person last looked at Today, on this device: a look lasts half an hour, so reloading doesn't move it; the
@@ -56,6 +59,7 @@ export function Today() {
     <main class="wide today">
       <div class="page-head"><h1>{label("ui.nav_today")}</h1><span class="meta">{at(v.now, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</span></div>
       <p class="meta">{t("ui.today_lead")}</p>
+      {v.getting_started && <GettingStarted g={v.getting_started} preview={preview} />}
       <div class="today-grid">
         <section class="today-needs" aria-labelledby="today-needs">
           <h2 id="today-needs">{t("ui.today_needs")}</h2>
@@ -125,6 +129,39 @@ function NowNext({ next, preview }: { next: NonNullable<TodayView["next"]>; prev
           {may && <button type="button" class={`small${allIn(x) ? " checked" : ""}`} aria-pressed={allIn(x)}
             onClick={() => preview("booking.check_in", checkInInput(x))}>{t(allIn(x) ? "ui.checked_in" : "ui.check_in")}</button>}
         </li>; })}</ul>}
+    </section>
+  );
+}
+
+/** Getting started, on a new club's Today: the drawing, how far along the club is, and each step with its tick (from the
+ *  club itself, getting_started.ts) and the page that does it. Inviting members also offers the members' app link to
+ *  copy. Once every required step is done it can be put away, previewed like any change. */
+function GettingStarted({ g, preview }: { g: Started; preview: (action: string, input: unknown) => Promise<void> }) {
+  const [copied, setCopied] = useState(false);
+  const link = club.value?.member_url ?? "";
+  const copy = async () => { await navigator.clipboard?.writeText(link).catch(() => {}); setCopied(true); };
+  return (
+    <section class="card start" aria-labelledby="start-title">
+      <div class="start-head">
+        <Illustration name="new-club" size="s" class="start-art" />
+        <div>
+          <h2 id="start-title">{t("ui.start_title")}</h2>
+          <p class="meta">{t("ui.start_lead")}</p>
+          <p class="start-progress"><strong>{t("ui.start_progress", { done: g.done, total: g.items.length })}</strong></p>
+        </div>
+      </div>
+      <ol class="plain start-list">{g.items.map((x) => (
+        <li key={x.key} class={x.done ? "start-item done" : "start-item"}>
+          <span class="start-tick"><Icon name={x.done ? "circle-check-big" : "circle"} label={t(x.done ? "ui.start_done" : "ui.start_open")} /></span>
+          <span class="start-body">
+            <span><strong>{x.title}</strong>{x.optional && <span class="meta"> · {t("ui.start_optional")}</span>}</span>
+            <span class="meta">{x.how}</span>
+            {x.key === "members" && link && !x.done && <span><button type="button" class="small" onClick={copy}>{copied ? t("ui.link_copied") : t("ui.start_copy_link")}</button></span>}
+          </span>
+          {x.page && !x.done && <a class="button small" href={x.page}>{t("ui.start_open")}</a>}
+        </li>))}
+      </ol>
+      {g.ready && <p class="start-ready"><span>{t("ui.start_ready")}</span> <button type="button" class="primary small" onClick={() => preview("getting_started.hide", {})}>{t("ui.start_hide")}</button></p>}
     </section>
   );
 }

@@ -40,6 +40,8 @@ export function Settings() {
   };
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, []);
+  // Opened at one part (/settings#prices, from Getting started): there once it's drawn.
+  useEffect(() => { if (s && location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView(); }, [Boolean(s)]);
   if (!s) return <Skeleton />;
   // Send a change only if there is one.
   const send: Preview = async (action, input) => {
@@ -58,7 +60,7 @@ export function Settings() {
       {mayDo("pass_product.set") && <PassProducts preview={preview} />}
       {mayDo("promo_code.set") && <PromoCodes preview={preview} />}
       {me.value?.roles.some((r) => r.key === "owner") && <ClubExport />}
-      {s.locations.map((l) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} />)}
+      {s.locations.map((l, i) => <LocationCard key={JSON.stringify(l)} l={l} plans={s.plans} send={send} first={i === 0} />)}
       <NewLocation tz={s.club.time_zone} send={send} />
       {note && <p class="note" role="status">{note}</p>}
       {sheet}
@@ -186,7 +188,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
   const toggleAmenity = (a: string, on: boolean) => set("amenities", on ? AMENITIES.filter((x) => x === a || f.amenities.includes(x)) : f.amenities.filter((x) => x !== a));
   const toggleLang = (l: string, on: boolean) => set("languages", on ? [...new Set([...f.languages, l])].sort() : f.languages.filter((x) => x !== l));
   return (
-    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("club.update", { ...links(diff(start, f)), ...(aboutTr.trim() !== aboutTr0 ? { translations: translationsOf({ about: aboutTr }) } : {}) }); }}>
+    <form class="card card-form" id="club-details" onSubmit={(e) => { e.preventDefault(); send("club.update", { ...links(diff(start, f)), ...(aboutTr.trim() !== aboutTr0 ? { translations: translationsOf({ about: aboutTr }) } : {}) }); }}>
       <h2 class="with-icon"><Icon name="building-2" />{t("ui.club_details")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => set("name", e.currentTarget.value)} /></label>
       <label>{t("ui.legal_name")}<input value={f.legal_name} onInput={(e) => set("legal_name", e.currentTarget.value)} /></label>
@@ -253,7 +255,7 @@ function ClubForm({ c, answerer, send }: { c: ClubRow; answerer: string; send: P
   );
 }
 
-function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
+function LocationCard({ l, plans, send, first }: { l: Loc; plans: Plan[]; send: Preview; first?: boolean }) {
   const start = { name: l.name, address: l.address ?? "", postal_code: l.postal_code ?? "", region: l.region ?? "", country: l.country ?? "", time_zone: l.time_zone };
   const [f, setF] = useState(start), [court, setCourt] = useState({ name: "", kind: "indoor" });
   return (
@@ -268,7 +270,8 @@ function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview
         <label>{t("ui.time_zone")}<input list="zones" required value={f.time_zone} onInput={(e) => setF({ ...f, time_zone: e.currentTarget.value })} /></label>
         <button>{t("ui.preview")}</button>
       </form>
-      <h3>{t("ui.courts")}</h3>
+      {/* The first location's parts have their own addresses, for Getting started's links (getting_started.ts). */}
+      <h3 id={first ? "courts" : undefined}>{t("ui.courts")}</h3>
       <ul class="plain">{l.courts.map((c) => <CourtRow key={JSON.stringify(c)} c={c} l={l} send={send} />)}</ul>
       <form class="card-form" onSubmit={(e) => { e.preventDefault(); send("court.create", { location_id: l.id, name: court.name, kind: court.kind }); }}>
         <label>{t("ui.add_court")}<input required placeholder={t("ui.name")} value={court.name} onInput={(e) => setCourt({ ...court, name: e.currentTarget.value })} /></label>
@@ -276,7 +279,7 @@ function LocationCard({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview
         <button>{t("ui.preview")}</button>
       </form>
       <OpeningHours l={l} send={send} />
-      <Prices l={l} plans={plans} send={send} />
+      <Prices l={l} plans={plans} send={send} first={first} />
     </section>
   );
 }
@@ -325,7 +328,7 @@ function OpeningHours({ l, send }: { l: Loc; send: Preview }) {
 
 const usd = (cents: number) => money(cents, lang.value);
 
-function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
+function Prices({ l, plans, send, first }: { l: Loc; plans: Plan[]; send: Preview; first?: boolean }) {
   const blank = { rule_id: "", name: "", dollars: "", days: [] as number[], allDay: true, starts: "17:00", ends: "22:00", valid_from: "", valid_to: "", courts: [] as string[], priority: 0, plans: [] as string[], name_tr: "" };
   const [f, setF] = useState(blank);
   const edit = (r: Price) => setF({ rule_id: r.id, name: r.name, dollars: amountInput(r.cents_per_hour), days: r.weekdays ?? [], allDay: !r.starts, starts: r.starts ?? "17:00", ends: r.ends ?? "22:00",
@@ -336,7 +339,7 @@ function Prices({ l, plans, send }: { l: Loc; plans: Plan[]; send: Preview }) {
   const toggle = (list: (number | string)[], v: number | string) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   return (
     <>
-      <h3>{t("ui.prices_title")}</h3>
+      <h3 id={first ? "prices" : undefined}>{t("ui.prices_title")}</h3>
       {l.prices.length === 0 && <p class="meta">{t("ui.no_prices")}</p>}
       <ul class="plain">{l.prices.map((r) => (
         <li class="row"><span><strong>{r.name}</strong> {usd(r.cents_per_hour)}{t("ui.per_hour")}<br /><span class="meta">{describe(r)}{r.priority ? ` · ${t("ui.priority")} ${r.priority}` : ""}</span></span>
@@ -434,10 +437,11 @@ function CourtHours({ c, l, send }: { c: Court; l: Loc; send: Preview }) {
 }
 
 function NewLocation({ tz, send }: { tz: string; send: Preview }) {
-  const [open, setOpen] = useState(false), [f, setF] = useState({ name: "", address: "", postal_code: "", region: "", country: "", time_zone: tz });
-  if (!open) return <button onClick={() => setOpen(true)}>{t("ui.add_location")}</button>;
+  // Opened from Getting started (/settings#new-location), on a club with no location yet: the form, open.
+  const [open, setOpen] = useState(() => location.hash === "#new-location"), [f, setF] = useState({ name: "", address: "", postal_code: "", region: "", country: "", time_zone: tz });
+  if (!open) return <button id="new-location" onClick={() => setOpen(true)}>{t("ui.add_location")}</button>;
   return (
-    <form class="card card-form" onSubmit={(e) => { e.preventDefault(); send("location.create", { name: f.name, time_zone: f.time_zone, address: f.address || undefined, postal_code: f.postal_code || undefined, region: f.region || undefined, country: f.country || undefined }); }}>
+    <form class="card card-form" id="new-location" onSubmit={(e) => { e.preventDefault(); send("location.create", { name: f.name, time_zone: f.time_zone, address: f.address || undefined, postal_code: f.postal_code || undefined, region: f.region || undefined, country: f.country || undefined }); }}>
       <h2 class="with-icon"><Icon name="map-pin-plus" />{t("ui.add_location")}</h2>
       <label>{t("ui.name")}<input required value={f.name} onInput={(e) => setF({ ...f, name: e.currentTarget.value })} /></label>
       <label>{t("ui.address")}<input value={f.address} onInput={(e) => setF({ ...f, address: e.currentTarget.value })} /></label>

@@ -40,6 +40,7 @@ import { paymentRoutes, type StripeConfig } from "./payments.ts";
 import { textRoutes } from "./texts.ts";
 import { emailEventRoutes } from "./email_events.ts";
 import { receiptRoutes } from "./receipts.ts";
+import { startFromChecks } from "./getting_started.ts";
 import type { Mailer } from "./mailer.ts";
 
 /** The changes a staff screen offers a button for, which /me reports for people with only the club's own roles. */
@@ -289,6 +290,8 @@ export function makeApp(deps: AppDeps) {
     texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep, ip: ipOf, mailReach: deps.mailReach }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
+  // Getting started's card payments, email and practice mode, as doctor's checks say (getting_started.ts).
+  startFromChecks(db);
   app.route("/", readRoutes(db, (c) => c.get("me"), (c) => c.get("lang"), { production: deps.production ?? false }));
   // Plugins (plugins.ts): the club's key for what it sends them, and what outside services post for them, passed on.
   usePluginIo({ production: deps.production ?? false, publicUrl, catalogUrl: deps.pluginCatalogUrl ?? null });

@@ -464,6 +464,21 @@ main.money { display: flex; flex-direction: column; } main.money > * { min-width
 .take-rows li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; margin: 10px 0; }
 .take-bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .take-bar span { display: block; height: 100%; background: var(--brand); }
+/* Getting started (Today.tsx): the new-club drawing beside its title and progress, then the steps, two across on a wide
+   screen. A done step's tick is the club's colour; one to do, an empty ring and the page that does it. */
+.start { margin: 12px 0 16px; }
+.start-head { display: flex; align-items: center; gap: 16px; } .start-head h2 { margin: 0 0 4px; } .start-head p { margin: 0 0 4px; }
+.start-head .start-art { margin: 0; width: clamp(84px, 22vw, 132px); }
+.start-progress { color: var(--brand-ink); }
+.start-list { display: grid; gap: 8px 24px; grid-template-columns: minmax(0, 1fr); margin: 16px 0 0; padding: 0; }
+@media (min-width: 900px) { .start-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.start-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.start-tick { font-size: 22px; line-height: 1; color: var(--muted); flex: none; padding-top: 2px; } .start-item.done .start-tick { color: var(--brand-ink); }
+.start-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; } .start-body button { margin: 4px 0 0; }
+.start-item.done .start-body strong { color: var(--muted); }
+.start-item > .button { flex: none; margin: 0; }
+.start-ready { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 16px 0 0; } .start-ready button { margin: 0; }
+@media (max-width: 480px) { .start-head { flex-direction: column; align-items: flex-start; } }
 /* Today's Now and next: the time, what and where, and Check in on the right. */
 .next-list li { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
 .next-body { display: flex; flex-direction: column; overflow-wrap: anywhere; }

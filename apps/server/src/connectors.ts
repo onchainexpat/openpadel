@@ -9,6 +9,7 @@ import { both, type Key, type Lang, type Text } from "@kumi/i18n";
 import { cardsFor, clubAgents, KumiError, type CardSlot, type Db } from "@kumi/core";
 import { doctor, type Check } from "./doctor.ts";
 import { pluginsWithHealth } from "./plugins.ts";
+import { gettingStartedView } from "./getting_started.ts";
 
 export type ConnectorStatus = "on" | "waiting" | "attention" | "off";
 type Env = Record<string, string | undefined>;
@@ -50,8 +51,9 @@ export function statusOfAll(checks: Pick<Check, "state" | "key">[]): ConnectorSt
 }
 
 let cache: { at: number; checks: Check[] } | null = null;
-/** doctor's checks, kept a minute: the page and an agent asking again don't ask Stripe and Twilio each time. */
-async function checksNow(db: Db, env: Env, fresh: boolean): Promise<Check[]> {
+/** doctor's checks, kept a minute: the page and an agent asking again don't ask Stripe and Twilio each time (Getting
+ *  started reads them too, getting_started.ts). */
+export async function checksNow(db: Db, env: Env, fresh: boolean): Promise<Check[]> {
   if (!fresh && cache && Date.now() - cache.at < 60_000) return cache.checks;
   const checks = await doctor(db, env);
   cache = { at: Date.now(), checks };
@@ -93,6 +95,8 @@ export async function connectors(db: Db, l: Lang, o: { production: boolean; env?
     assistants: assistants.map((a) => ({ id: a.id, name: a.name, person: a.person, roles: a.roles, last_used_at: a.last_used_at })),
     // What to give the club's agent to connect something, and what to ask Ask openPadel.
     ask: { commands: pluginCommands(l), prompt: both("connector.ask_prompt")[l] },
+    // A new club's steps, as Today shows them (getting_started.ts), put away or not.
+    getting_started: await gettingStartedView(db, l),
   };
 }
 
