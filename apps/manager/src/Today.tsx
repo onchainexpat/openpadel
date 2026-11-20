@@ -51,7 +51,9 @@ export function Today() {
   if (!v) return <Skeleton />;
   const at = (iso: string, o: Intl.DateTimeFormatOptions) => clubTime(iso, o, v.time_zone);
   const money = (c: number) => dollars(c, lang.value);
-  const sinceWords = at(v.since.from, Date.parse(v.now) - Date.parse(v.since.from) > 20 * 3600_000 ? { weekday: "short", hour: "numeric", minute: "2-digit" } : { hour: "numeric", minute: "2-digit" });
+  const day = (iso: string) => at(iso, { year: "numeric", month: "numeric", day: "numeric" });
+  // Another day than today (in the club's time) names the day, so "since 9:55 PM" never reads as tonight.
+  const sinceWords = at(v.since.from, day(v.since.from) !== day(v.now) ? { weekday: "short", hour: "numeric", minute: "2-digit" } : { hour: "numeric", minute: "2-digit" });
   const counts = Object.entries(v.since.counts).filter(([, n]) => n);
   const top = v.takings ? Math.max(1, ...v.takings.rows.map((r) => r.cents)) : 1;
 
