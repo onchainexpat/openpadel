@@ -167,7 +167,7 @@ export function Courts() {
   const playtomic = Boolean(me.value?.playtomic) || g.courts.some((c) => c.items.some((it) => it.kind === "mirror"));
 
   return (
-    <main class="today">
+    <main class="wide today">
       <div class="sched-bar">
         <h1>{label("ui.nav_day_schedule")}</h1>
         {locs.length > 1 && <select class="sched-loc" aria-label={t("ui.location")} value={loc} onChange={(e) => { setLoc(e.currentTarget.value); setDate(""); }}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select>}

@@ -28,7 +28,7 @@ export function Mirror() {
   const fmt = (iso: string) => clubTime(iso, { dateStyle: "medium", timeStyle: "short" });
   const free = courts.filter((c) => !d.linked.some((l) => l.court_id === c.id));
   return (
-    <main>
+    <main class="wide">
       <h1>{t("ui.mirror_title")}</h1>
       {canMoveIn && <p><a href="/settings/moving-in">{t("ui.moving_link")}</a> · <a href="/playtomic/move-in">{t("ui.movein_link")}</a></p>}
       <section class="card">

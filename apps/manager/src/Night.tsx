@@ -23,7 +23,7 @@ export function Night({ id }: { id: string }) {
   const format = d.draw?.format ?? d.format ?? "americano";
 
   return (
-    <main>
+    <main class="wide">
       <h1>{t("ui.rounds")}</h1>
       {sheet}
       {error && <p class="error" role="alert">{error}</p>}

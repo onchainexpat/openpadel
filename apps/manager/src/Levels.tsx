@@ -144,7 +144,7 @@ export function Levels() {
   const tabs: [string, string][] = [["review", t("count.levels_review", { count: items.length })], ["players", t("ui.levels_tab_players")], ["changes", t("ui.levels_tab_changes")],
     ["disputes", disputes?.length ? t("count.levels_disputes", { count: disputes.length }) : t("ui.levels_tab_disputes")]];
   return (
-    <main>
+    <main class="wide">
       <div class="page-head">
         <div><h1>{t("ui.nav_levels")}</h1><p class="meta">{t("ui.levels_lead")}</p></div>
         <p class="page-actions">

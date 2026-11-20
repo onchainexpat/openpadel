@@ -71,7 +71,7 @@ export function MoveSteps() {
   const num = (r: Row, n: number | null) => n === null ? "-" : r.money ? dollars(n, lang.value) : String(n);
 
   return (
-    <main>
+    <main class="wide">
       <div class="page-head">
         <div><h1>{t("ui.moving_title")}</h1><p class="meta">{t("ui.moving_intro")}</p></div>
         <div class="chips">

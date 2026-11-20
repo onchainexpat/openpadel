@@ -26,7 +26,7 @@ export function Competition({ id }: { id: string }) {
   const title = (k: string) => { const [stage, n] = k.split(":"); return stage === "group" ? t("pub.group", { n: Number(n) }) : t("ui.round", { n: Number(n) }); };
 
   return (
-    <main>
+    <main class="wide">
       <h1>{d.name}</h1>
       {sheet}
       {d.public && <p><button class="small" onClick={() => preview("competition.public_names", { program_id: id, on: !d.public_names })}>{t(d.public_names ? "ui.public_names_off" : "ui.public_names_on")}</button></p>}

@@ -59,7 +59,7 @@ export function Reports() {
   const hrs = (n: number) => (Math.round(n * 10) / 10).toLocaleString(formatLocale(lang.value));
   const day = (d: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T12:00:00Z`));
   return (
-    <main>
+    <main class="wide">
       <h1>{t(money === false ? "ui.my_work_title" : "ui.reports_title")}</h1>
       <section class="card card-form">
         {locs.length > 1 && <label>{t("ui.location")}<select value={loc} onChange={(e) => setLoc(e.currentTarget.value)}>{locs.map((l) => <option value={l.id}>{l.name}</option>)}</select></label>}
