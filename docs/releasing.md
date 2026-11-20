@@ -14,8 +14,8 @@ Do these once, before the first public release:
 - [ ] **Real contact addresses:** `security@openpadel.dev` and `conduct@openpadel.dev` forward to an inbox someone
       reads (send each a test). The clone commands (`docs/setup/README.md`, `docs/setup/accounts/server.md`,
       `deploy/docker/README.md`, `docs/cli/README.md`) name `https://github.com/onchainexpat/openpadel`: change
-      them all if the repository moves (to an `openpadel` organisation, say).
-- [ ] **Tests on every push:** add `push:` to `.github/workflows/test.yml` (public repositories don't use up Actions minutes).
+      them all if the repository moves (to an organisation, say; the name `openpadel` on GitHub is already taken by someone else).
+- [x] **Tests on every push:** add `push:` to `.github/workflows/test.yml` (public repositories don't use up Actions minutes).
 
 ## Cutting a release
 

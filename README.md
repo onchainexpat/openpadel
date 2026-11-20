@@ -9,7 +9,7 @@ on its own server, or [Kumi](https://kumi.club), the hosted service, runs it for
 openPadel was called Kumi until 7 November 2026. The `kumi` command still works, and the settings, paths and
 packages keep their `kumi` names.
 
-**Status:** 0.3.1. Self-hosted, or hosted by Kumi; English and US Spanish; a club's own currency, formats and tax; texts
+**Status:** the newest [release](https://github.com/onchainexpat/openpadel/releases) is the version to run. Self-hosted, or hosted by Kumi; English and US Spanish; a club's own currency, formats and tax; texts
 to US and Canadian numbers only. What it does is in [`CHANGELOG.md`](CHANGELOG.md) (0.1.0, and what each release added since),
 and its known limits are under the newest release there.
 

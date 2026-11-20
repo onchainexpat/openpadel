@@ -1,8 +1,9 @@
-# Typecheck, tests and both app builds, on pull requests and when started by hand (Actions, then Run
-# workflow). Not on every push while the repository is private: private repos share a monthly allowance
-# of Actions minutes. Actions are pinned to exact commits of releases at least two weeks old.
+# Typecheck, tests and both app builds, on every push to main, on pull requests and when started by hand
+# (Actions, then Run workflow). Actions are pinned to exact commits of releases at least two weeks old.
 name: test
 on:
+  push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

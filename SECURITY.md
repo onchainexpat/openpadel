@@ -3,8 +3,7 @@
 ## Reporting a problem
 
 Please report security problems privately, never in a public issue: through this repository's
-**Security** tab ("Report a vulnerability"), which is turned on when the repository goes public, or
-until then by email to `security@openpadel.dev`. Say what you found, how to reproduce it, and what it
+**Security** tab ("Report a vulnerability"), or by email to `security@openpadel.dev`. Say what you found, how to reproduce it, and what it
 could let someone do. You'll get an answer within a few days, and credit in the release that fixes it if
 you'd like it.
 
