@@ -9,7 +9,24 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Not released yet
 
+### Added
+- Getting started: a brand-new club's Today shows its owner and managers a short list of what's left before members
+  can use the app (the club's details and logo, courts and opening hours, prices, card payments, email, a membership
+  plan if the club has them, staff, members, and going live), each ticked from the club itself, never by hand, with a
+  link to the page that does it and the members' app link to copy. Once every step it needs is done, it can be put
+  away (previewed, and it can be undone). The club's agent reads the same list from Connectors.
+- Twelve new drawings, in the club's colour like the others: on the sign-in page, Getting started, empty Approvals,
+  Questions and Levels, an empty inbox or chats, Connectors before anything is connected, the start of Moving in,
+  Friends, Family and My level before there's anything in them, a search or filter that finds nothing, the offer to
+  put the app on the home screen, and a page that didn't load. They load only when they're on the screen.
+- An address the apps don't have (an old link, a typo) says so, with a button back to the start. The members' app
+  used to go to Home without a word.
+
 ### Changed
+- Staff pages on a computer all start at the same place, beside the menu. Tables, calendars and boards (Today,
+  Courts, Bookings, People, Payments, Reports, Levels, Connectors) use the screen's width; forms and lists of messages
+  (Approvals, Changes, Chats, Questions, Messages, Settings) keep a width that's easy to read. Before, about half of
+  them sat in a narrow column in the middle of the screen.
 - Both apps have one set of icons, beside the words (never instead of them): the members' tabs, the staff menu
   (every item, Moving in too) and the staff phone tabs, the main buttons (book, pay, add, invite, share, check in),
   the facts on a list's rows (time, court, price, level, places), the status pills (paid, waiting, cancelled) and
@@ -20,6 +37,14 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   title and rows, a list's rows, a card, a line), in place of the word "Loading". They wait 150 ms first, so a quick
   answer doesn't flash them; the shimmer stops when the phone asks for less motion, and screen readers still hear
   "Loading".
+
+### Fixed
+- A club open from midnight to midnight says "Open all day" on the members' Home, not "Open today 12:00 AM to 24:00";
+  a club that closes at midnight says 12:00 AM or 24:00, whichever way the person's phone writes times.
+- The Schedule no longer asks for a coach's calendar link for someone who isn't a coach, which showed an error in
+  the browser on every visit.
+- Every file picker in the staff app (the club's logo, a coach's photo, the vault, importing people, Playtomic's
+  export) says "Choose a file" in the person's language, not the browser's.
 
 ## 0.7.4 (2026-11-20)
 
