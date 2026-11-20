@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, dollars, EmptyState, lang, t, shortTime, usePreview, clubTime } from "@kumi/ui";
+import { Icon, api, dollars, EmptyState, lang, t, shortTime, usePreview, clubTime } from "@kumi/ui";
 import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 import { formatLocale } from "@kumi/i18n/format";
@@ -42,7 +42,7 @@ export function MyPlaces() {
             {p.paid_cents > 0 ? ` · ${paidOf(p.paid_cents, p.price_cents)}` : isConfirming(p.pending_payment_id) ? ` · ${t("ui.paid_confirming")}` : p.pending_payment_id ? ` · ${t("ui.pay_pending")}` : ""}</div>
           {p.offer_expires_at && <p class="note">{t("ui.offer_ends", { time: shortTime(p.offer_expires_at) })} <button class="small primary" onClick={() => preview("enrolment.accept_offer", { enrolment_id: p.id })}>{t("ui.take_place")}</button></p>}
           {p.pending_payment_id && provider === "stripe" && !ready && <p class="meta">{t("error.payments_not_set_up")}</p>}
-          {p.pending_payment_id && !isConfirming(p.pending_payment_id) && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(p)}>{t("ui.pay_now", { amount: dollars(p.pending_cents ?? p.price_cents, lang.value) })}</button>}
+          {p.pending_payment_id && !isConfirming(p.pending_payment_id) && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(p)}><Icon name="credit-card" />{t("ui.pay_now", { amount: dollars(p.pending_cents ?? p.price_cents, lang.value) })}</button>}
           {import.meta.env.DEV && p.pending_payment_id && provider === "test" && <button class="small" onClick={() => payTest(p.pending_payment_id!)}>{t("ui.pay_test")}</button>}
           {" "}<button class="small" onClick={() => preview("enrolment.leave", { enrolment_id: p.id })}>{t("ui.leave")}</button>
         </li>
@@ -88,11 +88,11 @@ function MyBookings({ provider, ready, onPaid, onLoaded }: { provider: string | 
             {b.pay_mode === "split" ? ` · ${t("count.joined", { count: b.joined, total: b.players })}` : ""}</div>
           {b.balance_cents > 0 && b.mine && <p class="error">{t("ui.still_owed", { amount: dollars(b.balance_cents, lang.value) })}</p>}
           {weeklyLaterLine(b.weekly_later) && <p class="meta">{weeklyLaterLine(b.weekly_later)}</p>}
-          {b.pending_payment_id && !confirming(b) && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}>{t("ui.pay_now", { amount: dollars(b.group_cents ?? b.pending_cents ?? b.share_cents, lang.value) })}</button>}
+          {b.pending_payment_id && !confirming(b) && provider === "stripe" && ready && <button class="small primary" onClick={() => setPaying(b)}><Icon name="credit-card" />{t("ui.pay_now", { amount: dollars(b.group_cents ?? b.pending_cents ?? b.share_cents, lang.value) })}</button>}
           {import.meta.env.DEV && b.pending_payment_id && provider === "test" && <button class="small" onClick={async () => { await api(`/dev/payments/${b.pending_payment_id}/settle`, {}); load(); }}>{t("ui.pay_test")}</button>}
           {b.open_match_id ? <><a class="small" href={`/match/${b.open_match_id}`}>{t("ui.see_match")}</a>{" "}</>
             : b.kind === "court" && b.status === "confirmed" && <><a class="small" href={`/match/${b.id}`}>{t("ui.players_and_score")}</a>{" "}</>}
-          {b.invite_code && <><button class="small" onClick={() => share(b)}>{t("ui.invite_others")}</button>{copied === b.id && <span class="meta"> {t("ui.link_copied")}</span>}</>}
+          {b.invite_code && <><button class="small" onClick={() => share(b)}><Icon name="user-plus" />{t("ui.invite_others")}</button>{copied === b.id && <span class="meta"> {t("ui.link_copied")}</span>}</>}
           {" "}<a class="small" href={`/my/bookings/${b.id}/calendar.ics`} download={`${b.code}.ics`}>{t("ui.add_calendar")}</a>
           {b.mine && b.status === "confirmed" && <>{" "}<button class="small" onClick={() => preview("booking.cancel", { booking_id: b.id })}>{t("ui.cancel_booking_member")}</button></>}
         </li>

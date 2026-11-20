@@ -4,7 +4,7 @@
 // they ask for, and saves that card; a kid with a login sees their own rules and requests here.
 // Loaded only when one of these pages is opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
-import { AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
+import { Icon, Skeleton, AccountData, api, ApiError, dollars, lang, me, t, usePreview, clubTime, serverNow } from "@kumi/ui";
 import { loadFamily } from "./ForWhom.tsx";
 import { BringLevel, ClaimsList, type L } from "./MyLevel.tsx";
 import type { Key } from "@kumi/i18n";
@@ -52,7 +52,7 @@ function ParentFamily() {
     } catch (e) { setNote(e instanceof ApiError ? e.message : String(e)); }
     void loadKids();
   };
-  if (!f) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!f) return <Skeleton />;
   const pid = me.value!.person.id, h = f.household, parent = !h || f.role === "adult";
   const kidOf = (id: string) => k?.kids.find((x) => x.id === id);
   const link = (code: string) => `${location.origin}/family/join/${code}`;
@@ -113,7 +113,7 @@ function ParentFamily() {
         <ul class="plain">{k.to_pay.map((p) => (
           <li class="row"><span>{p.name}: {p.what}</span>
             {isConfirming(p.payment_id) ? <span class="meta" role="status">{t("ui.paid_confirming")}</span>
-              : <button class="small primary" onClick={() => setPaying({ id: p.payment_id, cents: p.cents, name: p.what })}>{t("ui.pay_now", { amount: usd(p.cents) })}</button>}</li>))}</ul>
+              : <button class="small primary" onClick={() => setPaying({ id: p.payment_id, cents: p.cents, name: p.what })}><Icon name="credit-card" />{t("ui.pay_now", { amount: usd(p.cents) })}</button>}</li>))}</ul>
       </section>}
       {parent && h && h.juniors.length > 0 && <section class="card">
         <h2>{t("ui.family_card")}</h2>
@@ -130,7 +130,7 @@ function ParentFamily() {
         <form onSubmit={(e) => { e.preventDefault(); preview("household.add_junior", { person_id: pid, display_name: name, birth_year: Number(year) }); }}>
           <label>{t("ui.junior_name")} <input required maxLength={80} value={name} onInput={(e) => setName(e.currentTarget.value)} /></label>
           <label>{t("ui.birth_year")} <input type="number" required min={thisYear - 18} max={thisYear} inputMode="numeric" value={year} onInput={(e) => setYear(e.currentTarget.value)} /></label>
-          <button class="primary">{t("ui.add_junior")}</button>
+          <button class="primary"><Icon name="plus" />{t("ui.add_junior")}</button>
         </form>
       </section>}
       {parent && <section class="card">
@@ -139,7 +139,7 @@ function ParentFamily() {
         <ul class="plain">{(h?.invites ?? []).map((x) => (
           <li class="row"><span class="meta">{t("ui.invite_until", { date: dayWords(x.until) })}</span>
             <span><button class="small" onClick={() => copy(x.code)}>{copied === x.code ? t("ui.link_copied") : t("ui.copy_invite")}</button>{" "}
-              {"share" in navigator && <button class="small" onClick={() => share(x.code)}>{t("ui.share_invite")}</button>}{" "}
+              {"share" in navigator && <button class="small" onClick={() => share(x.code)}><Icon name="share-2" />{t("ui.share_invite")}</button>}{" "}
               <button class="small" onClick={() => preview("household.withdraw_invite", { invite_id: x.id })}>{t("ui.withdraw_invite")}</button></span></li>))}</ul>
         {!h?.invites.length && <button class="primary" onClick={() => preview("household.invite", { person_id: pid })}>{t("ui.make_invite")}</button>}
       </section>}
@@ -176,7 +176,7 @@ function KidHome() {
   const load = () => api<{ kid: Mine | null }>("/my/kid").then((r) => setK(r.kid));
   const { preview, sheet } = usePreview(() => void load());
   useEffect(() => { void load(); }, [lang.value]);
-  if (!k) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!k) return <Skeleton />;
   const words = (xs: string[]) => xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} ${lang.value === "es" ? "y" : "and"} ${xs[xs.length - 1]}`;
   const kinds = KINDS.filter((x) => k.rules[x]).map((x) => t(`kid.kind.${x}`));
   return (
@@ -205,7 +205,7 @@ export function FamilyJoin({ code }: { code: string }) {
   const { preview, sheet } = usePreview(() => { setJoined(true); void loadFamily(); });
   useEffect(() => { void load(); }, [code]);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
-  if (!inv) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!inv) return <Skeleton />;
   const names = new Intl.ListFormat(lang.value === "es" ? "es" : "en", { type: "conjunction" }).format(inv.juniors);
   return (
     <main>
@@ -229,7 +229,7 @@ export function Waiver() {
   const load = () => api<NonNullable<typeof w>>("/my/waiver").then(setW);
   const { preview, sheet } = usePreview(() => { void load(); void loadFamily(); });
   useEffect(() => { void load(); }, [lang.value]);
-  if (!w) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!w) return <Skeleton />;
   if (!w.waiver) return <main class="card"><p>{t("ui.waiver_none")}</p></main>;
   const day = (iso: string) => clubTime(iso, { day: "numeric", month: "long", year: "numeric" });
   return (
@@ -258,7 +258,7 @@ function JuniorLevel({ id, name, onChanged }: { id: string; name: string; onChan
   const load = () => api<L>(`/my/level?for=${encodeURIComponent(id)}`).then(setD);
   const { preview, sheet } = usePreview(() => { void load(); onChanged?.(); });
   useEffect(() => { void load(); }, [id, lang.value]);
-  if (!d) return <p class="meta">{t("ui.loading")}</p>;
+  if (!d) return <Skeleton shape="rows" rows={2} />;
   const rv = d.review, day = (iso: string) => clubTime(iso, { dateStyle: "long" });
   return (
     <section class="card">

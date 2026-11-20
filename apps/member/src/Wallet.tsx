@@ -4,7 +4,7 @@
 // no topping up credit (credit comes from gift cards and refunds), so there's no button for it.
 // Loaded when it's first opened.
 import { useEffect, useState } from "preact/hooks";
-import { api, club, clubTime, dollars, lang, me, t } from "@kumi/ui";
+import { Skeleton, api, club, clubTime, dollars, lang, me, t } from "@kumi/ui";
 import { brandName, creditKindKey, signedCents } from "./wallet_lines.ts";
 
 type Credit = { cents: number; history: { at: string; cents: number; kind: string }[] };
@@ -36,7 +36,7 @@ export function Wallet() {
 
       <section class="card" aria-labelledby="wallet-history">
         <h2 id="wallet-history">{t("ui.credit_history")}</h2>
-        {credit === undefined ? <p class="meta">{t("ui.loading")}</p> : !credit?.history.length ? <p class="meta">{t("ui.wallet_history_none")}</p> :
+        {credit === undefined ? <Skeleton shape="rows" rows={3} /> : !credit?.history.length ? <p class="meta">{t("ui.wallet_history_none")}</p> :
           <ul class="plain wallet-list">{credit.history.map((h) => <li>
             <span class="wallet-what"><span>{t(creditKindKey(h.kind))}</span><span class="meta">{day(h.at)}</span></span>
             <span class={`wallet-amount${h.cents > 0 ? " in" : ""}`}>{signedCents(h.cents, (x) => dollars(x, lang.value))}</span>

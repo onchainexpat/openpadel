@@ -1,7 +1,7 @@
 // A "take my place" link, opened: whose place, the match, and (inside the band) taking it and paying. The
 // place is the sub's once the payment goes through; until then its player is still in.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { Icon, Skeleton, api, ApiError, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 
@@ -16,7 +16,7 @@ export function TakePlace({ code }: { code: string }) {
   useConfirming([o?.match.me?.sub ? o.match.me.pending_payment_id : null], load);
   useEffect(() => { void load(); api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {}); }, [code]);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
-  if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!o) return <Skeleton />;
   const m = o.match, amount = dollars(o.share_cents, lang.value), band = `${Number(m.level_min).toFixed(2)}-${Number(m.level_max).toFixed(2)}`;
   const when = new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: m.time_zone, weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(m.start));
   const pending = m.me?.sub ? m.me.pending_payment_id : null;
@@ -30,7 +30,7 @@ export function TakePlace({ code }: { code: string }) {
         <p><strong>{when}</strong> · {m.court}, {m.location}</p>
         <p class="meta">{t("ui.levels_band", { band })} · {t(m.rated ? "ui.match_rated" : "ui.match_friendly")} · {t("ui.place_price", { amount })}</p>
         {o.can === "take" && (pending && isConfirming(pending) ? <p class="note" role="status">{t("ui.paid_confirming")}</p> : pending
-          ? <button class="primary" onClick={() => setPaying(pending)}>{t("ui.pay_now", { amount })}</button>
+          ? <button class="primary" onClick={() => setPaying(pending)}><Icon name="credit-card" />{t("ui.pay_now", { amount })}</button>
           : <button class="primary" onClick={() => preview("booking.take_place", { code, person_id: me.value!.person.id })}>{t("ui.take_pay", { amount })}</button>)}
         {o.can === "outside" && <p class="meta">{t("error.take_outside_band", { level: m.my_level === null ? t("ui.no_level_yet") : m.my_level.toFixed(2), band })}</p>}
         {o.can === "closed" && <p class="meta">{t("error.offer_closed")}</p>}

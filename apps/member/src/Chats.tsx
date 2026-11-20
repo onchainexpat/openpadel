@@ -2,7 +2,7 @@
 // players in a game read its chat (and the club); juniors are told plainly why they see none.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
-import { ApiError, api, clubTime, lang, loadChatsUnread, shortTime, t, usePreview } from "@kumi/ui";
+import { Skeleton, ApiError, api, clubTime, lang, loadChatsUnread, shortTime, t, usePreview } from "@kumi/ui";
 
 type Chat = { kind: "booking" | "session"; id: string; title: string; starts_at: string; unread: number; last_at: string | null; muted: boolean; can_post: boolean };
 type List = { off: boolean; junior: boolean; chats: Chat[] };
@@ -22,7 +22,7 @@ function Words({ text }: { text: string }) {
 export function Chats() {
   const [d, setD] = useState<List | null>(null);
   useEffect(() => { api<List>("/my/chats").then(setD).catch(() => setD({ off: false, junior: false, chats: [] })); }, [lang.value]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   return (
     <main>
       <h1>{t("ui.chats_title")}</h1>
@@ -57,7 +57,7 @@ export function ChatThread() {
   useEffect(() => { void load(); const id = setInterval(load, 10_000); return () => clearInterval(id); }, [path, lang.value]);
   useEffect(() => { end.current?.scrollIntoView({ block: "end" }); }, [d?.messages.length]);
   if (gone) return <main class="card"><p>{gone}</p><p><a href="/chats">{t("ui.chat_back")}</a></p></main>;
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const act = async (f: () => Promise<unknown>) => {
     setBusy(true); setError(null);
     try { await f(); await load(); } catch (e) { setError(e instanceof ApiError ? e.message : String(e)); } finally { setBusy(false); }

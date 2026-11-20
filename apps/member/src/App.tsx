@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, Greeting, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
+import { Skeleton, api, chatsUnread, club, Inbox, InboxLink, lang, lazyPage, loadChatsUnread, loadMe, loadUnread, Greeting, me, Notices, t, type Club, SignIn, ProfilePage as Profile, TwoFactor, applyBrand, applyTitle } from "@kumi/ui";
 import { Home } from "./Home.tsx";
 import { TabBar } from "./TabBar.tsx";
 import { MyPlaces } from "./MyPlaces.tsx";
@@ -73,7 +73,7 @@ export function App() {
   }, [inside]);
   // The chats' badge once the club says whether it has chats.
   useEffect(() => { if (inside && club.value?.players_chat) void loadChatsUnread(); }, [inside, club.value?.players_chat]);
-  if (me.value === undefined) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (me.value === undefined) return <Skeleton />;
   if (me.value === null) return <SignIn />;
   if (me.value.gate) return <ErrorBoundary><TwoFactor /></ErrorBoundary>;
   return (

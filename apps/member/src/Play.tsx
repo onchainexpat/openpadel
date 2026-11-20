@@ -3,7 +3,7 @@
 // save places for friends (each has added the other), share the link and mark who didn't come.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, ApiError, club, dollars, EmptyState, lang, lazyPage, me, NewOnly, PluginCards, shortTime, t, usePluginCards, usePreview, serverNow } from "@kumi/ui";
+import { Icon, Skeleton, api, ApiError, club, dollars, EmptyState, lang, lazyPage, me, NewOnly, PluginCards, shortTime, t, usePluginCards, usePreview, serverNow } from "@kumi/ui";
 import { isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 import { PlaySwitch } from "./TabBar.tsx";
@@ -75,7 +75,7 @@ const placeCount = (m: Match) => { const taken = m.players.filter((p) => !p.leav
 export function Play() {
   const [rows, setRows] = useState<Match[] | null>(null), [day, setDay] = useState(""), [places, setPlaces] = useState(false), [gender, setGender] = useState<Gender | "">("");
   useEffect(() => { api<Match[]>("/open-matches").then(setRows); }, [lang.value]);
-  if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!rows) return <Skeleton />;
   const level = rows[0]?.my_level, tz = rows[0]?.time_zone ?? club.value?.time_zone ?? "UTC";
   const shown = rows.filter((m) => matchOn(m, day) && (!places || matchHasPlace(m)) && genderShown(m.gender, gender));
   return (
@@ -105,12 +105,12 @@ function MatchCard({ m }: { m: Match }) {
   return (
     <a class={m.me ? "item mine" : "item"} href={`/match/${m.id}`}>
       <span class="item-top">
-        <span class="item-kind">{t("ui.open_match_label")}{m.me ? <span class="tag on">{t("ui.youre_in")}</span> : <FitTag level={m.my_level} min={m.level_min} max={m.level_max} />}</span>
+        <span class="item-kind">{t("ui.open_match_label")}{m.me ? <span class="tag on"><Icon name="circle-check-big" />{t("ui.youre_in")}</span> : <FitTag level={m.my_level} min={m.level_min} max={m.level_max} />}</span>
         <span class="item-price">{full ? t("ui.full") : <>{dollars(m.share_cents, lang.value)} <small>{t("ui.each")}</small></>}</span>
       </span>
-      <span class="item-title">{when(m, { weekday: "short", day: "numeric", month: "short" })}, {t("ui.time_range", { from: when(m, { hour: "numeric", minute: "2-digit" }), to: end })}</span>
-      <span class="item-when">{m.court}, {m.location}</span>
-      <span class="tags"><span class="tag">{t("ui.level_band", { min: Number(m.level_min).toFixed(2), max: Number(m.level_max).toFixed(2) })}</span><span class="tag">{t(m.rated ? "ui.rated_short" : "ui.friendly_short")}</span>{m.gender && <span class="tag">{t(`gender.${m.gender}`)}</span>}</span>
+      <span class="item-title"><Icon name="clock" />{when(m, { weekday: "short", day: "numeric", month: "short" })}, {t("ui.time_range", { from: when(m, { hour: "numeric", minute: "2-digit" }), to: end })}</span>
+      <span class="item-when"><Icon name="map-pin" />{m.court}, {m.location}</span>
+      <span class="tags"><span class="tag"><Icon name="chart-no-axes-column-increasing" />{t("ui.level_band", { min: Number(m.level_min).toFixed(2), max: Number(m.level_max).toFixed(2) })}</span><span class="tag">{t(m.rated ? "ui.rated_short" : "ui.friendly_short")}</span>{m.gender && <span class="tag">{t(`gender.${m.gender}`)}</span>}</span>
       <span class="item-foot"><Taken taken={taken} total={total} names={m.players.filter((p) => !p.leaving).map((p) => p.name)} />{m.host && <span class="item-org">{t("ui.by_name", { name: m.host })}</span>}</span>
     </a>
   );
@@ -132,7 +132,7 @@ export function MatchPage({ id }: { id: string }) {
   // Plugins' cards on the game (connectors.ts): for its organiser and players only; anyone else, nothing.
   const cards = usePluginCards(m && (m.me || m.host_is_me) ? `/matches/${id}/cards` : null);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
-  if (!m) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!m) return <Skeleton />;
   const pid = me.value!.person.id, payNow = m.me?.pending_payment_id;
   const share = async () => { await navigator.clipboard?.writeText(`${location.origin}/join/${m.invite_code}`).catch(() => {}); setCopied(true); };
   const copyTake = async () => { await navigator.clipboard?.writeText(`${location.origin}/take/${m.me!.offer!.code}`).catch(() => {}); setTakeCopied(true); };
@@ -151,7 +151,7 @@ export function MatchPage({ id }: { id: string }) {
         {payNow && isConfirming(payNow) && <p class="note" role="status">{t("ui.paid_confirming")}</p>}
         {payNow && !isConfirming(payNow) && <div class="note"><p>{m.me!.held_until ? t("ui.pay_to_keep", { amount: dollars(m.share_cents, lang.value), time: shortTime(m.me!.held_until) })
           : t("ui.place_saved_for_you", { host: m.host ?? "", amount: dollars(m.share_cents, lang.value) })}</p>
-          <button class="primary" onClick={() => setPaying(payNow)}>{t("ui.pay_now", { amount: dollars(m.share_cents, lang.value) })}</button></div>}
+          <button class="primary" onClick={() => setPaying(payNow)}><Icon name="credit-card" />{t("ui.pay_now", { amount: dollars(m.share_cents, lang.value) })}</button></div>}
         {m.can === "ask" && (m.request?.status === "requested"
           ? <p class="meta">{t("ui.asked_waiting", { host: m.host ?? "" })} <button class="link" onClick={() => preview("booking.withdraw_ask", { request_id: m.request!.id })}>{t("ui.take_back")}</button></p>
           : <>
@@ -210,7 +210,7 @@ export function MatchPage({ id }: { id: string }) {
       {/* Join, kept at the bottom of the screen above the tabs: the same preview as before, nothing changes before Confirm. */}
       {m.can === "join" && <div class="book-bar">
         <span class="book-bar-what"><strong>{when(m, { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</strong><span>{t("ui.place_price", { amount: dollars(m.share_cents, lang.value) })}</span></span>
-        <NewOnly><button class="primary" onClick={() => preview("booking.join", { booking_id: m.id, person_id: pid })}>{t("ui.join_and_pay", { amount: dollars(m.share_cents, lang.value) })}</button></NewOnly>
+        <NewOnly><button class="primary" onClick={() => preview("booking.join", { booking_id: m.id, person_id: pid })}><Icon name="user-plus" />{t("ui.join_and_pay", { amount: dollars(m.share_cents, lang.value) })}</button></NewOnly>
       </div>}
     </main>
   );

@@ -3,7 +3,7 @@
 // offer) is joined by saving a card, first charged on its start date. Dates are the club's.
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
-import { api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
+import { Icon, Skeleton, api, dollars, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 
@@ -85,7 +85,7 @@ export function MembershipBody({ embedded = false, onPlan }: { embedded?: boolea
   }, [lang.value]);
   const paid = async () => { setPaying(null); setWelcome(!mine); setChosen(null); await load(); };
   useConfirming([mine?.pay_now?.payment_id], load);
-  if (mine === undefined) return <p class="card">{t("ui.loading")}</p>;
+  if (mine === undefined) return <Skeleton shape="card" />;
 
   return (
     <div class="membership">
@@ -111,7 +111,7 @@ export function MembershipBody({ embedded = false, onPlan }: { embedded?: boolea
           {mine.mine && mine.status === "past_due" && mine.pay_now && <div class="note">
             <p>{t("ui.renewal_declined", { amount: dollars(mine.pay_now.cents, lang.value), date: mine.retry_on ? clubDay(mine.retry_on) : "" })}</p>
             {isConfirming(mine.pay_now.payment_id) ? <p class="meta" role="status">{t("ui.paid_confirming")}</p>
-              : <button class="primary" onClick={() => setPaying({ id: mine.pay_now!.payment_id, cents: mine.pay_now!.cents, name: mine.name })}>{t("ui.pay_now", { amount: dollars(mine.pay_now.cents, lang.value) })}</button>}
+              : <button class="primary" onClick={() => setPaying({ id: mine.pay_now!.payment_id, cents: mine.pay_now!.cents, name: mine.name })}><Icon name="credit-card" />{t("ui.pay_now", { amount: dollars(mine.pay_now.cents, lang.value) })}</button>}
           </div>}
           {mine.mine && mine.brought_from && mine.source === "app" && !mine.card_saved && mine.status === "active" && <div class="note">
             <p>{t("ui.brought_keep", { date: clubDay(mine.ends_on!), amount: dollars(mine.price_cents, lang.value), period: t(`ui.period_${mine.period}` as Key) })}</p>

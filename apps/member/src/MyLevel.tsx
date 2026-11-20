@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, clubTime, FileInput, lang, me, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, ApiError, clubTime, FileInput, lang, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { moveOf } from "./level_moves.ts";
 
@@ -119,7 +119,7 @@ export function MyLevel() {
   const load = () => api<L>("/my/level").then((x) => { setD(x); setTo(""); setNote(""); });
   const { preview, sheet } = usePreview(load);
   useEffect(() => { load(); }, [lang.value]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const pid = me.value!.person.id, when = (iso: string) => clubTime(iso, { dateStyle: "medium" }), day = (iso: string) => clubTime(iso, { dateStyle: "long" });
   const sa = d.self_adjust, rv = d.review;
   return (

@@ -3,7 +3,7 @@
 // when the coach gives lessons then and a court is free. Loaded only when opened, to keep the app small.
 import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
-import { api, dollars, EmptyState, Illustration, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
+import { Icon, Skeleton, api, dollars, EmptyState, Illustration, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { ForWhom } from "./ForWhom.tsx";
 import { formatLocale } from "@kumi/i18n/format";
@@ -31,7 +31,7 @@ export function Lessons({ head }: { head?: ComponentChildren }) {
   // The first day the coach can be booked, once one is chosen (the club's today).
   useEffect(() => { if (coach && !day && d) setDay(new Intl.DateTimeFormat("en-CA", { timeZone: d.time_zone }).format(new Date(serverNow()))); }, [coach?.id]);
   useEffect(() => { if (coach && day) { setPick(null); setTimes(null); api<{ times: Time[]; days_ahead: number }>(`/my/lessons/times?coach_id=${coach.id}&date=${day}&minutes=${minutes}&for=${who}`).then((r) => { setTimes(r.times); setDaysAhead(r.days_ahead); }); } }, [coach?.id, day, minutes, who]);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const zone = d.time_zone;
   const fmt = (iso: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: zone, ...o }).format(new Date(iso));
   const money = (c: number) => dollars(c, lang.value);
@@ -93,7 +93,7 @@ export function Lessons({ head }: { head?: ComponentChildren }) {
             {pay === "split" && <p class="meta">{t("ui.lesson_split_explain", { mine: money(mine), hours: t("count.hours", { count: d.split_deadline_hours }) })}</p>}
           </>}
           <p class="meta">{t(d.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: d.free_cancel_hours }), percent: d.late_refund_percent })}</p>
-          <NewOnly><button class="primary" onClick={book}>{t("ui.book_the_lesson")}</button></NewOnly>{" "}
+          <NewOnly><button class="primary" onClick={book}><Icon name="calendar-plus" />{t("ui.book_the_lesson")}</button></NewOnly>{" "}
           <button class="link" onClick={() => setPick(null)}>{t("ui.other_time")}</button>
         </section>
       )}

@@ -1,7 +1,7 @@
 // Gift cards (gift_cards.ts): buy one (paid by card in the sheet), see the codes of the cards you bought, to give
 // or print, and redeem a code into your club credit.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, club, dollars, lang, me, t, usePreview } from "@kumi/ui";
+import { Icon, api, ApiError, club, dollars, lang, me, t, usePreview } from "@kumi/ui";
 import type { Key } from "@kumi/i18n";
 import { confirmPaid, isConfirming, PaySheet, useConfirming } from "./Pay.tsx";
 import { capFor, fromMajor, toMajor } from "@kumi/i18n/format";
@@ -54,7 +54,7 @@ export function GiftCards() {
           {x.code && <button class="small" onClick={() => print()}>{t("ui.gift_card_print")}</button>}
           {/* Still waiting for its payment (a card declined, the form closed): pay it now, or take it back. */}
           {x.status === "pending" && x.pending_payment_id && !isConfirming(x.pending_payment_id) && <p>
-            <button class="small primary" onClick={() => setPaying({ id: x.pending_payment_id!, cents: x.amount_cents, forName: x.for_name })}>{t("ui.pay_now", { amount: dollars(x.amount_cents, lang.value) })}</button>{" "}
+            <button class="small primary" onClick={() => setPaying({ id: x.pending_payment_id!, cents: x.amount_cents, forName: x.for_name })}><Icon name="credit-card" />{t("ui.pay_now", { amount: dollars(x.amount_cents, lang.value) })}</button>{" "}
             <button class="small" onClick={() => preview("gift_card.drop", { gift_card_id: x.id })}>{t("ui.remove")}</button></p>}
         </li>)}</ul></section>}
       {cards.some((x) => !x.bought) && <section class="card"><h2>{t("ui.gift_card_redeemed_list")}</h2>

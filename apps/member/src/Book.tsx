@@ -4,7 +4,7 @@
 // stays at the bottom of the screen and opens the usual preview; nothing changes before Confirm. Times are the
 // club's, whatever the phone's clock says.
 import { useEffect, useState } from "preact/hooks";
-import { api, club, dollars, Illustration, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
+import { Skeleton, Icon, api, club, dollars, Illustration, lang, me, NewOnly, t, usePreview, serverNow } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { weeklyLaterLine, type WeeklyLater } from "./weekly_later.ts";
 import { formatLocale } from "@kumi/i18n/format";
@@ -77,7 +77,7 @@ export function Book() {
       .then((all) => { if (live) setPrices(Object.fromEntries(all.filter((x): x is readonly [string, Quote] => x !== null))); });
     return () => { live = false; };
   }, [pick?.start, pick?.courts.length]);
-  if (!o) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!o) return <Skeleton />;
 
   // Every start time with the courts free then (less the courts already added, at those times).
   const ms = (iso: string) => new Date(iso).getTime();
@@ -126,10 +126,10 @@ export function Book() {
       {o.lengths.length > 1 && <div class="seg-buttons" role="group" aria-label={t("ui.length")}>{o.lengths.map((m) => <button type="button" class={m === minutes ? "on" : undefined} aria-pressed={m === minutes} onClick={() => setMinutes(m)}>{t("ui.minutes", { count: m })}</button>)}</div>}
       {cart.length > 0 && <section class="card">
         <h2>{t("ui.courts_chosen")}</h2>
-        <ul class="plain">{cart.map((x, k) => <li class="row"><span>{x.name} · {fmt(x.start, { hour: "numeric", minute: "2-digit" })} · {t("ui.minutes", { count: x.minutes })} · {dollars(x.cents, lang.value)}</span>
+        <ul class="plain">{cart.map((x, k) => <li class="row"><span class="facts-line"><span class="fact"><Icon name="map-pin" />{x.name}</span><span class="fact"><Icon name="clock" />{fmt(x.start, { hour: "numeric", minute: "2-digit" })} · {t("ui.minutes", { count: x.minutes })}</span><span class="fact"><Icon name="tag" />{dollars(x.cents, lang.value)}</span></span>
           <button class="small" onClick={() => setCart(cart.filter((_, j) => j !== k))}>{t("ui.remove")}</button></li>)}</ul>
         <p class="meta">{t(o.late_refund_percent ? "ui.cancel_rule" : "ui.cancel_rule_none", { hours: t("count.hours", { count: o.free_cancel_hours }), percent: o.late_refund_percent })}</p>
-        <NewOnly><button class="primary" onClick={bookCart}>{cart.length === 1 ? t("ui.book_now") : t("ui.book_courts", { count: cart.length, amount: dollars(cartTotal, lang.value) })}</button></NewOnly>
+        <NewOnly><button class="primary" onClick={bookCart}><Icon name="calendar-plus" />{cart.length === 1 ? t("ui.book_now") : t("ui.book_courts", { count: cart.length, amount: dollars(cartTotal, lang.value) })}</button></NewOnly>
       </section>}
       {free && !free.open && <p class="card">{t("ui.closed_this_day")}</p>}
       {free?.open && !times.length && <p class="card">{t("ui.no_free_times")}</p>}
@@ -199,7 +199,7 @@ export function Book() {
       {ready && <div class="book-bar">
         <span class="book-bar-what"><strong>{fmt(pick!.start, { weekday: "short", day: "numeric", month: "short" })}, {fmt(pick!.start, { hour: "numeric", minute: "2-digit" })}</strong>
           <span>{chosen?.name} · {t("ui.minutes", { count: minutes })} · {pay === "whole" ? dollars(q!.total_cents, lang.value) : t("ui.your_part_now", { amount: dollars(mine, lang.value) })}</span></span>
-        <NewOnly><button class="primary" onClick={book}>{t("ui.book_now")}</button></NewOnly>
+        <NewOnly><button class="primary" onClick={book}><Icon name="calendar-plus" />{t("ui.book_now")}</button></NewOnly>
       </div>}
     </main>
   );

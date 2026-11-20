@@ -4,7 +4,7 @@
 // club's public facts). Nothing about another member is shown.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation } from "preact-iso";
-import { api, club, clubTime, EmptyState, Illustration, lang, serverNow, t } from "@kumi/ui";
+import { api, club, clubTime, EmptyState, Icon, Illustration, lang, serverNow, Skeleton, t, type IconName } from "@kumi/ui";
 import { formatLocale, type Key } from "@kumi/i18n/format";
 import { hoursOn, weekLines, clock, type Hours, type Special } from "./hours.ts";
 import { comingUp, type Upcoming } from "./home_data.ts";
@@ -51,16 +51,16 @@ export function Home() {
 
       <section aria-labelledby="next-title">
         <div class="section-head"><h2 id="next-title">{t("ui.home_next_title")}</h2>{next && next.length > 0 && <a class="tap" href="/places">{t("ui.home_see_all")}</a>}</div>
-        {!next ? <p class="meta">{t("ui.loading")}</p> : !next.length ? <EmptyState art="no-bookings" size="s">{t("ui.home_next_none")} {courts && <a href="/book">{t("ui.nav_book")}</a>}</EmptyState> : (
+        {!next ? <Skeleton shape="card" rows={2} /> : !next.length ? <EmptyState art="no-bookings" size="s">{t("ui.home_next_none")} {courts && <a href="/book">{t("ui.nav_book")}</a>}</EmptyState> : (
           <ul class="rail" aria-labelledby="next-title">{next.map((x) => <li key={x.key}><ActivityCard x={x} /></li>)}</ul>
         )}
       </section>
 
       <nav class="shortcuts" aria-label={t("ui.home_shortcuts")}>
-        {courts && <a href="/book"><Icon d="M3 4.5h18v16.5H3zM8 2.5v4M16 2.5v4M3 10h18" />{t("ui.nav_book")}</a>}
-        {courts && <a href="/play"><Icon d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM5.7 5.6c3.2 3.6 3.2 9.2 0 12.8M18.3 5.6c-3.2 3.6-3.2 9.2 0 12.8" />{t("ui.home_join")}</a>}
-        <a href="/events"><Icon d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" />{t("ui.home_events")}</a>
-        <a href="/learn"><Icon d="M4 4.5A1.5 1.5 0 0 1 5.5 3H20v16H5.5A1.5 1.5 0 0 0 4 20.5zM4 20.5A1.5 1.5 0 0 0 5.5 22H20" />{t("ui.tab_learn")}</a>
+        {courts && <a href="/book"><Shortcut icon="calendar-plus" />{t("ui.nav_book")}</a>}
+        {courts && <a href="/play"><Shortcut icon="volleyball" />{t("ui.home_join")}</a>}
+        <a href="/events"><Shortcut icon="trophy" />{t("ui.home_events")}</a>
+        <a href="/learn"><Shortcut icon="graduation-cap" />{t("ui.tab_learn")}</a>
       </nav>
 
       {soon && <section class="card" aria-labelledby="soon-title">
@@ -99,8 +99,9 @@ export function Home() {
 
 const kindName = (k: string) => k === "indoor" ? t("ui.kind_indoor") : k === "outdoor" ? t("ui.kind_outdoor") : k === "covered_outdoor" ? t("ui.kind_covered_outdoor") : "";
 
-function Icon({ d }: { d: string }) {
-  return <span class="shortcut-icon" aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d={d} /></svg></span>;
+/** A shortcut's round icon, over its words. */
+function Shortcut({ icon }: { icon: IconName }) {
+  return <span class="shortcut-icon"><Icon name={icon} /></span>;
 }
 
 /** One thing coming up: the day, what it is, when and where, and where it stands. */
@@ -114,9 +115,10 @@ function ActivityCard({ x }: { x: Upcoming }) {
       <div class="when-block" aria-hidden="true"><span>{at({ weekday: "short" })}</span><strong>{at({ day: "numeric" })}</strong></div>
       <div class="activity-body">
         <span class="kind">{what}</span>
-        <span class="title">{at({ weekday: "long", day: "numeric", month: "short" })}, {at({ hour: "numeric", minute: "2-digit" })}{x.court ? ` · ${x.court}` : ""}</span>
+        <span class="title">{at({ weekday: "long", day: "numeric", month: "short" })}</span>
+        <span class="facts-line meta"><span class="fact"><Icon name="clock" />{at({ hour: "numeric", minute: "2-digit" })}</span>{x.court && <span class="fact"><Icon name="map-pin" />{x.court}</span>}</span>
         {x.for_name && <span class="meta">{t("ui.for_name", { name: x.for_name })}</span>}
-        {state && <span class="meta">{state}</span>}
+        {state && <span class="meta">{x.state === "waitlist" ? <span class="status-chip"><Icon name="hourglass" />{state}</span> : state}</span>}
         <a class="button" href={x.href}>{t("ui.home_details")}<span class="visually-hidden">: {what}</span></a>
       </div>
     </article>

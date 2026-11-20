@@ -3,7 +3,7 @@
 // ask about one of their juniors.
 import { useEffect, useState } from "preact/hooks";
 import { useLocation, useRoute } from "preact-iso";
-import { api, AskChat, lang, me, t, usePreview, clubTime, type AskStatus } from "@kumi/ui";
+import { Skeleton, api, AskChat, lang, me, t, usePreview, clubTime, type AskStatus } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
 
 type Fact = { id: string; topic: string; question: string; answer: string };
@@ -44,7 +44,7 @@ export function Ask() {
       <section class="card">
         <h2>{t("ui.common_questions")}</h2>
         <label>{t("ui.search_questions")}<input type="search" value={search} onInput={(e) => setSearch(e.currentTarget.value)} /></label>
-        {!facts ? <p class="meta">{t("ui.loading")}</p> : facts.length ? <FactList facts={facts} /> : <p class="meta">{t(search.trim() ? "ui.no_facts_match" : "ui.no_facts_yet")}</p>}
+        {!facts ? <Skeleton shape="rows" /> : facts.length ? <FactList facts={facts} /> : <p class="meta">{t(search.trim() ? "ui.no_facts_match" : "ui.no_facts_yet")}</p>}
       </section>
       <section class="card card-form">
         <h2>{t("ui.ask_heading")}</h2>
@@ -55,7 +55,7 @@ export function Ask() {
       </section>
       <section class="card">
         <h2>{t("ui.your_questions")}</h2>
-        {!mine ? <p class="meta">{t("ui.loading")}</p> : !mine.length ? <p class="meta">{t("ui.no_questions")}</p>
+        {!mine ? <Skeleton shape="rows" rows={2} /> : !mine.length ? <p class="meta">{t("ui.no_questions")}</p>
           : <ul class="plain">{mine.map((q) => <li key={q.id} class="row"><span><a href={`/ask/${q.id}`}>{q.first}</a><br />
             <span class="meta">{when(q.created_at)}{q.about ? ` · ${t("ui.question_about", { name: q.about })}` : ""}</span></span>
             <span class={q.status === "answered" ? "badge" : q.status === "open" ? "badge warn" : "badge muted"}>{statusText(q.status)}</span></li>)}</ul>}
@@ -71,7 +71,7 @@ export function AskThread() {
   const { preview, sheet } = usePreview(load);
   useEffect(() => { void load(); }, [params.id, lang.value]);
   if (gone) return <main class="card"><p>{t("ui.q_none")}</p><p><a href="/ask">{t("ui.all_questions")}</a></p></main>;
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const last = d.messages[d.messages.length - 1];
   return (
     <main>

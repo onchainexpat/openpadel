@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
-import { api, lang, t, ReceiptSheet, type ReceiptView } from "@kumi/ui";
+import { Skeleton, api, lang, t, ReceiptSheet, type ReceiptView } from "@kumi/ui";
 
 type Row = { id: string; number: string; kind: "payment" | "refund"; total: string; when: string; what: string; more: number; for_name: string | null };   // for_name: a kid it was for
 
@@ -28,7 +28,7 @@ export function ReceiptPage() {
   const [r, setR] = useState<ReceiptView | null>(null), [missing, setMissing] = useState(false);
   useEffect(() => { api<ReceiptView>(`/my/receipts/${id}`).then(setR).catch(() => setMissing(true)); }, [id, lang.value]);
   if (missing) return <main class="card"><p>{t("ui.receipts_none")}</p></main>;
-  if (!r) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!r) return <Skeleton />;
   return (
     <main>
       <p class="no-print"><a href="/receipts">{t("ui.receipt_back")}</a></p>

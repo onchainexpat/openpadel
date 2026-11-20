@@ -3,7 +3,7 @@
 // and the rest of their pages: profile and settings, bookings, friends, receipts, their data, and signing out.
 // Loaded when it's first opened.
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, club, dollars, lang, me, PluginCards, signOutHere, t, usePluginCards, usePreview } from "@kumi/ui";
+import { Skeleton, api, clubTime, club, dollars, lang, me, PluginCards, signOutHere, t, usePluginCards, usePreview } from "@kumi/ui";
 import { MembershipBody } from "./Membership.tsx";
 import { juniors } from "./ForWhom.tsx";
 import { confirmPaid, PaySheet } from "./Pay.tsx";
@@ -121,7 +121,7 @@ function CardOnFile() {
       {adding && <PaySheet cardOnFile replace={Boolean(c)} amountCents={0} name="" onClose={() => setAdding(false)} onPaid={saved} />}
       {adding && provider === "test" && import.meta.env.DEV && <p><button class="primary" onClick={async () => { await api("/dev/card", {}); saved(); }}>{t("ui.save_card_test")}</button></p>}
       {note && <p class="note" role="status">{note}</p>}
-      {d === undefined ? <p class="meta">{t("ui.loading")}</p> : c ? <>
+      {d === undefined ? <Skeleton shape="rows" rows={1} /> : c ? <>
         <div class="card-on-file">
           <span class="card-chip" aria-hidden="true">{t("ui.card_chip")}</span>
           <span class="card-what"><strong>{c.last4 ? t("ui.card_ending", { brand: brandName(c.brand), last4: c.last4 }) : t("ui.me_card_title")}</strong>

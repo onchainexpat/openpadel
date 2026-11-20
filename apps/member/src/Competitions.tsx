@@ -1,7 +1,7 @@
 // Tournaments and leagues: enter with a friend, answer an invitation, see the next matches with their courts
 // and times, enter or confirm a score, ask to move a match, and the group or league table.
 import { useEffect, useState } from "preact/hooks";
-import { api, clubTime, me, serverNow, t, usePreview } from "@kumi/ui";
+import { Skeleton, api, clubTime, me, serverNow, t, usePreview } from "@kumi/ui";
 import { splitNext } from "./next_matches.ts";
 
 type Fixture = { id: string; stage: string; group: number | null; round: number; a: string; b: string; a_id: string | null; b_id: string | null; status: string; court: string | null; starts_at: string | null; score: string; walkover: boolean; move_asked: string | null; game_id: string | null; game_status: string | null };
@@ -17,7 +17,7 @@ export function Competitions() {
   const load = () => api<Page>("/my/competitions").then(setD);
   const { preview, sheet } = usePreview(() => void load());
   useEffect(() => { void load(); api<Friends>("/my/friends").then((f) => setFriends(f.friends)).catch(() => {}); }, []);
-  if (!d) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!d) return <Skeleton />;
   const pid = me.value!.person.id;
   // "6-3 4-6 10-7", from this pair's side.
   const parse = (s: string) => s.trim().split(/\s+/).filter(Boolean).map((x) => { const [us, them] = x.split(/[-:]/).map(Number); return { us: us ?? 0, them: them ?? 0 }; });

@@ -2,7 +2,7 @@
 // browser to Stripe and never touch Kumi. Kumi then checks with Stripe that the payment went through.
 // The same form saves a card without paying (a membership joined before its plan starts).
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, ApiError, club, dollars, lang, protectedPost, serverNow, t, useBackCloses } from "@kumi/ui";
+import { Icon, Skeleton, api, ApiError, club, dollars, lang, protectedPost, serverNow, t, useBackCloses } from "@kumi/ui";
 import { cardFormOptions, payMode } from "./pay_mode.ts";
 import { clearConfirming, isConfirmingAt, markConfirmingAt } from "./confirming.ts";
 
@@ -179,7 +179,7 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnF
             : <button class="primary" onClick={() => { setError(null); setStep("card"); }}>{t("ui.credit_continue")}</button>}{" "}<button onClick={onClose}>{t("ui.cancel")}</button></p>
         </div>}
         {step === "card" && (note ? <p class="note" role="status">{note}</p> : <div ref={box} class="card-form" />)}
-        {step === "credit" && credit === null && <p class="meta">{t("ui.loading")}</p>}
+        {step === "credit" && credit === null && <Skeleton shape="rows" rows={2} />}
         {step === "credit" && credit !== null && club.value?.promos && <div class="promo-step">
           {promoNote ? <p class="note" role="status">{promoNote}</p> : <form class="inline" onSubmit={(e) => { e.preventDefault(); void applyPromo(); }}>
             <input value={promo} onInput={(e) => setPromo(e.currentTarget.value)} maxLength={40} autocomplete="off" aria-label={t("ui.promo_code")} placeholder={t("ui.promo_have")} />
@@ -188,10 +188,10 @@ export function PaySheet({ paymentId: firstPayment, cardFor, familyCard, cardOnF
           {credit <= 0 && error && <p class="error" role="alert">{error}</p>}
         </div>}
         {step === "card" && <>
-          {state === "loading" && !error && !note && <p class="meta">{t("ui.loading")}</p>}
+          {state === "loading" && !error && !note && <Skeleton shape="rows" rows={2} />}
           {state === "checking" && <p class="note" role="status">{t("ui.pay_confirming")}</p>}
           {error && <p class="error" role="alert">{error}</p>}
-          {!note && <button class="primary" disabled={state !== "ready"} onClick={pay}>{cardOnFile ? t("ui.card_save") : familyCard ? t("ui.family_card_save") : cardFor ? t("ui.save_card") : t("ui.pay_now", { amount })}</button>}{" "}
+          {!note && <button class="primary" disabled={state !== "ready"} onClick={pay}>{!cardOnFile && !familyCard && !cardFor && <Icon name="credit-card" />}{cardOnFile ? t("ui.card_save") : familyCard ? t("ui.family_card_save") : cardFor ? t("ui.save_card") : t("ui.pay_now", { amount })}</button>}{" "}
           <button onClick={onClose}>{note ? t("ui.close") : t("ui.cancel")}</button>
         </>}
       </div>

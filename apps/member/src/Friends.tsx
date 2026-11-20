@@ -1,7 +1,7 @@
 // Friends: people the member has added and who added them, people they've played with lately (to add),
 // and their own friend link. A friend is someone each has added; only friends save each other match places.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, me, t, usePreview } from "@kumi/ui";
+import { Icon, Skeleton, api, ApiError, me, t, usePreview } from "@kumi/ui";
 
 type Named = { id: string; display_name: string };
 type Page = { friends: Named[]; added_you: Named[]; you_added: Named[]; played_with: Named[]; code: string };
@@ -15,7 +15,7 @@ function FriendsPage() {
   const load = () => api<Page>("/my/friends").then(setF);
   const { preview, sheet } = usePreview(() => void load());
   useEffect(() => { void load(); }, []);
-  if (!f) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!f) return <Skeleton />;
   const pid = me.value!.person.id, link = `${location.origin}/friend/${f.code}`;
   const copy = async () => { await navigator.clipboard?.writeText(link).catch(() => {}); setCopied(true); };
   const share = () => navigator.share?.({ title: t("ui.friend_link_title"), url: link }).catch(() => {});
@@ -40,7 +40,7 @@ function FriendsPage() {
         <h2>{t("ui.friend_link_title")}</h2>
         <p class="meta">{t("ui.friend_link_hint")}</p>
         <p><button onClick={copy}>{copied ? t("ui.link_copied") : t("ui.copy_friend_link")}</button>{" "}
-          {"share" in navigator && <button onClick={share}>{t("ui.share_friend_link")}</button>}</p>
+          {"share" in navigator && <button onClick={share}><Icon name="share-2" />{t("ui.share_friend_link")}</button>}</p>
       </section>
     </main>
   );
@@ -53,7 +53,7 @@ export function FriendLink({ code }: { code: string }) {
   const { preview, sheet } = usePreview(() => void load());
   useEffect(() => { void load(); }, [code]);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
-  if (!p) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!p) return <Skeleton />;
   const name = p.display_name;
   return (
     <main>

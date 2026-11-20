@@ -1,6 +1,6 @@
 // Joining a booking from its link: what it is, what your part costs, then pay it.
 import { useEffect, useState } from "preact/hooks";
-import { api, ApiError, dollars, Illustration, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
+import { Icon, Skeleton, api, ApiError, dollars, Illustration, lang, me, NewOnly, t, usePreview } from "@kumi/ui";
 import { PaySheet } from "./Pay.tsx";
 import { formatLocale } from "@kumi/i18n/format";
 
@@ -18,7 +18,7 @@ export function Join({ code }: { code: string }) {
     api<{ provider: string }>("/payments/config").then((c) => setProvider(c.provider)).catch(() => {});
   }, [code]);
   if (error) return <main class="card"><p class="error">{error}</p></main>;
-  if (!inv) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!inv) return <Skeleton />;
   const when = new Intl.DateTimeFormat(formatLocale(lang.value), { timeZone: inv.time_zone, weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" }).format(new Date(inv.start));
   if (done) return <main class="card done"><Illustration name="youre-in" size="s" /><h1>{t("ui.joined_booking")}</h1><p>{inv.court} · {when}</p><p><a href="/places">{t("ui.see_my_bookings")}</a></p></main>;
   return (
@@ -34,7 +34,7 @@ export function Join({ code }: { code: string }) {
           <NewOnly><button class="primary" onClick={() => preview("booking.join_players", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_as_player")}</button></NewOnly>
         </> : inv.open ? <>
           <p>{t("ui.your_part", { amount: dollars(inv.share_cents, lang.value) })}</p>
-          <NewOnly><button class="primary" onClick={() => preview("booking.join", { invite_code: code, person_id: me.value!.person.id })}>{t("ui.join_and_pay", { amount: dollars(inv.share_cents, lang.value) })}</button></NewOnly>
+          <NewOnly><button class="primary" onClick={() => preview("booking.join", { invite_code: code, person_id: me.value!.person.id })}><Icon name="user-plus" />{t("ui.join_and_pay", { amount: dollars(inv.share_cents, lang.value) })}</button></NewOnly>
         </> : <p class="meta">{t("error.invite_closed")}</p>}
       </section>
     </main>

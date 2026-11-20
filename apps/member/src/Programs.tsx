@@ -6,7 +6,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { Key } from "@kumi/i18n";
 import { useLocation } from "preact-iso";
-import { api, club, clubTime, dollars, EmptyState, lang, me, NewOnly, placesLeft, shortTime, t, usePreview, whyNothingNew, type ProgramCardData } from "@kumi/ui";
+import { Icon, Skeleton, api, club, clubTime, dollars, EmptyState, lang, me, NewOnly, placesLeft, shortTime, t, usePreview, whyNothingNew, type ProgramCardData } from "@kumi/ui";
 import { ForWhom } from "./ForWhom.tsx";
 import { LearnSwitch, PlaySwitch } from "./TabBar.tsx";
 import { DayStrip, PlacesToggle } from "./DayStrip.tsx";
@@ -61,7 +61,7 @@ export function Events() {
       <PlacesToggle value={places} onChange={setPlaces} />
       <GenderChips rows={all} value={gender} onChange={setGender} />
       <ForWhom value={who} onChange={setWho} />
-      {!rows ? <p class="meta">{t("ui.loading")}</p> : all.length === 0 ? <p class="card">{t("ui.events_nothing")}</p> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
+      {!rows ? <Skeleton shape="card" /> : all.length === 0 ? <p class="card">{t("ui.events_nothing")}</p> : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} href={`/events/${p.id}${forQuery(who)}`} /></li>)}</ul>
       {/* Links sent before Learn had its own tab named this page for clinics and courses too. */}
       <p><a href="/learn">{t("ui.learn_is_where")}</a></p>
@@ -89,7 +89,7 @@ export function Learn() {
       {/* How each fits this person's level; without a level, no tags, and where to set one. */}
       {level != null ? <p class="meta">{t("ui.learn_for_level", { level: level.toFixed(2) })}</p>
         : level === null && who === me.value!.person.id && <p class="meta">{t("ui.fit_no_level")} <a href="/level">{t("ui.set_level")}</a></p>}
-      {!rows ? <p class="meta">{t("ui.loading")}</p> : all.length === 0 ? <EmptyState art="no-classes">{t(show === "course" ? "ui.courses_nothing" : "ui.clinics_nothing")}</EmptyState>
+      {!rows ? <Skeleton shape="card" /> : all.length === 0 ? <EmptyState art="no-classes">{t(show === "course" ? "ui.courses_nothing" : "ui.clinics_nothing")}</EmptyState>
         : shown.length === 0 && <p class="card">{t("ui.none_this_day")}</p>}
       <ul class="items">{shown.map((p) => <li key={p.id}><ProgramItem p={p} level={level} href={`/learn/${p.id}${forQuery(who)}`}
         join={canJoin(p) ? () => preview("enrolment.join", { program_id: p.id, person_id: who }) : undefined} /></li>)}</ul>
@@ -113,13 +113,13 @@ function ProgramItem({ p, href, join, level }: { p: Program; href: string; join?
   return (
     <div class={p.my_status === "booked" ? "item mine" : "item"}>
       <span class="item-top">
-        <span class="item-kind">{kindLabel(p)}{p.my_status && <span class="tag on">{t(p.my_status === "booked" ? "ui.youre_in" : "ui.waitlist")}</span>}</span>
+        <span class="item-kind">{kindLabel(p)}{p.my_status && <span class="tag on"><Icon name={p.my_status === "booked" ? "circle-check-big" : "hourglass"} />{t(p.my_status === "booked" ? "ui.youre_in" : "ui.waitlist")}</span>}</span>
         <span class="item-price">{priceText(p)}{p.kind === "course" && p.my_basis !== "included" && <small> {t("ui.total")}</small>}</span>
       </span>
       <a class="item-title item-link" href={href}>{p.name}</a>
-      <span class="item-when">{p.dates ? t("ui.dates_count", { count: p.dates.length }) : p.kind === "course" && p.sessions > 1
+      <span class="item-when"><Icon name="clock" />{p.dates ? t("ui.dates_count", { count: p.dates.length }) : p.kind === "course" && p.sessions > 1
         ? t("ui.course_when", { weeks: t("count.weeks", { count: weeks }), first: when }) : when}{p.minutes ? ` · ${lengthText(p.minutes)}` : ""}</span>
-      {((p.level_min && p.level_max) || p.gender) && <span class="tags">{p.level_min && p.level_max && <span class="tag">{t("ui.level_band", { min: p.level_min, max: p.level_max })}</span>}
+      {((p.level_min && p.level_max) || p.gender) && <span class="tags">{p.level_min && p.level_max && <span class="tag"><Icon name="chart-no-axes-column-increasing" />{t("ui.level_band", { min: p.level_min, max: p.level_max })}</span>}
         {p.level_min && p.level_max && fit && <span class={`tag fit-${fit}`}>{fit === "great" || fit === "good" ? t("ui.fit_yours", { level: level!.toFixed(2) }) : t(`ui.fit_${fit}` as Key)}</span>}
         {p.gender && <span class="tag">{t(`gender.${p.gender}`)}</span>}</span>}
       <span class="item-foot">
@@ -142,7 +142,7 @@ export function ProgramPage({ id }: { id: string }) {
   // Under the tab it belongs to: a clinic or course linked as /events/... (the place-open email) moves on to /learn/..., and back.
   useEffect(() => { if (p && learn === isEvent(p.kind)) route(`${learn ? "/events" : "/learn"}/${id}${forQuery(who)}`, true); }, [p?.id, learn]);
   const back = learn ? (p?.kind === "course" ? "/learn?show=courses" : "/learn") : "/events";
-  if (!rows) return <main class="card"><p>{t("ui.loading")}</p></main>;
+  if (!rows) return <Skeleton />;
   if (!p) return <main><p class="card">{t("ui.program_gone")} <a href={back}>{t(learn ? "ui.tab_learn" : "ui.home_events")}</a></p></main>;
   const closed = Boolean(whyNothingNew(club.value)), left = placesLeft(p), full = !p.dates && left <= 0, need = p.min_players !== null ? p.min_players - p.booked : 0;
   const long = (iso: string) => clubTime(iso, { weekday: "long", day: "numeric", month: "long", hour: "numeric", minute: "2-digit" });
