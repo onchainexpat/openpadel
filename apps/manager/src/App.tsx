@@ -1,6 +1,6 @@
 import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { api, AskChat, club, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses } from "@kumi/ui";
+import { api, AskChat, club, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses, mayDo } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
 import { Courts, NewBooking, SessionPanel } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
@@ -116,7 +116,7 @@ function NotForRole() { return <main class="card"><p>{t("ui.not_for_your_role")}
 /** The menu's counts (today.ts): asks waiting for this person's yes, questions waiting, what needs someone on Today, and
  *  disputed scores, each only as far as the person's roles read it. One small read, every minute and again on each page
  *  change, so answering one shows straight away. None for a coach on their own: their menu has none of these. */
-type Counts = { approvals: number; questions: number; today: number; disputes: number };
+type Counts = { approvals: number; questions: number; today: number; disputes: number; moving?: boolean };
 function useCounts(on: boolean): Counts {
   const [n, setN] = useState<Counts>({ approvals: 0, questions: 0, today: 0, disputes: 0 }), { path } = useLocation();
   useEffect(() => {
@@ -146,7 +146,7 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
   // The page open now: its own address or one under it ("/" is whichever page is home).
   const on = (...roots: string[]) => (roots.some((r) => path === r || path.startsWith(`${r}/`)) ? "page" as const : undefined);
   const home = (item: MenuItem) => (path === "/" && homeItem === item ? "page" as const : undefined);
-  const link = (yes: unknown, href: string, words: string, current = on(href), count = 0) => (yes ? <li><a href={href} aria-current={current}>{words}{badge(count)}</a></li> : null);
+  const link = (yes: unknown, href: string, words: string, current: "page" | null | undefined = on(href), count = 0) => (yes ? <li><a href={href} aria-current={current ?? undefined}>{words}{badge(count)}</a></li> : null);
   const messages = desk || Boolean(areas?.includes("messages"));
   const items: Record<MenuItem, any> = {
     day: link(show("bookings"), "/courts", label("ui.nav_day_schedule"), on("/courts") ?? home("day")),
@@ -163,6 +163,8 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
     questions: messages && <li><QuestionsLink n={n.questions} current={on("/questions", "/facts")} /></li>,
     messages: link(messages, "/messages", label("ui.nav_messages"), on("/messages", "/groups", "/templates")),
     chats: link(show("members") && club.value?.players_chat, "/chats", label("ui.nav_chats")),
+    // The guided move from another system (Playtomic, CourtReserve, Playbypoint, a spreadsheet), while it's under way.
+    moving: link(n.moving && mayDo("move.step"), "/settings/moving-in", t("ui.nav_moving"), on("/settings/moving-in", "/playtomic/move-in")),
     playtomic: link(me.value?.playtomic, "/playtomic", label("ui.nav_playtomic")),
     reports: link(show("money") || coachSide, "/reports", label("ui.nav_reports")),
     // Approvals for everyone but a coach on their own (their own asks wait there too), and for anyone with one to answer.
@@ -174,7 +176,7 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
     // the Roles page Settings links to as well. Not under support access, which never changes roles.
     roles: link(show("settings") && mayCreate("role.create") && !me.value?.support, "/roles", label("ui.nav_roles")),
     changes: link(changes, "/changes", label("ui.nav_changes")),
-    settings: link(show("settings"), "/settings", label("ui.nav_settings"), on("/settings", "/vault")),
+    settings: link(show("settings"), "/settings", label("ui.nav_settings"), path.startsWith("/settings/moving-in") && n.moving ? null : on("/settings", "/vault")),
     inbox: <li><InboxLink current={on("/inbox")} /></li>,
     profile: link(true, "/profile", label("ui.nav_profile")),
   };
@@ -195,7 +197,7 @@ function StaffNav({ a, n, signOut }: { a: Access; n: Counts; signOut: () => void
 const mayAddSomething = () => mayCreate("program.create") || mayCreate("booking.create") || mayCreate("booking.create_lesson") || mayCreate("court.block");
 const TAB_WORDS: Record<TabKey, () => string> = {
   today: () => t("ui.nav_today"), day: () => label("ui.nav_day_schedule"), schedule: () => label("ui.nav_schedule"),
-  approvals: () => t("ui.nav_approvals"), people: () => label("ui.nav_people"), levels: () => t("ui.nav_levels"), programs: () => t("ui.phone_tab_programs"),
+  approvals: () => t("ui.phone_tab_approvals"), people: () => label("ui.nav_people"), levels: () => t("ui.nav_levels"), programs: () => t("ui.phone_tab_programs"),
   bookings: () => label("ui.nav_bookings"), reports: () => t("ui.nav_reports"), profile: () => t("ui.nav_profile"),
 };
 const TAB_ICONS: Record<TabKey, preact.JSX.Element> = {

@@ -5435,6 +5435,7 @@ export const en = {
   // The staff app's tabs at the bottom of a phone (phone_tabs.ts).
   "ui.phone_tabs": "Main pages",
   "ui.phone_tab_programs": "Programs",
+  "ui.phone_tab_approvals": "Approvals",
   "ui.occupancy_day": "Occupancy {percent}%",
   "ui.unpaid_pill": "Unpaid",
   "ui.legend": "What the colours mean",
@@ -6305,6 +6306,7 @@ export const en = {
   "connector.not_checked": "Not checked yet.",
   "connector.ask_prompt": "Find a plugin in openPadel's catalog that does what I need, show me in words what it asks for before you install it, and install it only once I say yes.",
   "ui.nav_connectors": "Connectors",
+  "ui.nav_moving": "Moving in",
   "ui.connectors_title": "Connectors",
   "ui.connectors_intro": "Everything the club plugs into: what each one may do, and whether it's working right now.",
   "ui.connectors_failed": "The connectors couldn't be read just now.",

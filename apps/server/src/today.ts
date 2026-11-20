@@ -264,9 +264,14 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
   // scores are disputed. One small read the menu repeats every minute and on each page change.
   app.get("/staff/counts", async (c) => {
     const id = me(c)!.id, o = await lens(id), now = new Date();
-    if (o.coachOnly) return c.json({ approvals: 0, questions: 0, today: 0, disputes: 0 });
+    if (o.coachOnly) return c.json({ approvals: 0, questions: 0, today: 0, disputes: 0, moving: false });
     const ns = await needs(id, o, lang(c), now, false), of = (k: NeedKind) => ns.find((x) => x.kind === k)?.count ?? 0;
-    return c.json({ approvals: of("approvals"), questions: of("questions"), today: ns.reduce((s, x) => s + x.count, 0), disputes: of("disputes") });
+    // Whether the menu offers "Moving in" (the guided move, MoveSteps): until the move is marked finished, while the
+    // club is still in practice or has said where it's coming from. A club that never moves in stops seeing it at
+    // go-live; Settings links to it either way. The menu shows it only to those who may run the move (move.step).
+    const mv = await db.selectFrom("move_in").select(["source", "finished_at"]).executeTakeFirst();
+    const moving = !mv?.finished_at && (process.env.KUMI_PRACTICE === "1" || Boolean(mv?.source));
+    return c.json({ approvals: of("approvals"), questions: of("questions"), today: ns.reduce((s, x) => s + x.count, 0), disputes: of("disputes"), moving });
   });
 
   /** Now and next: what's on the courts now and what starts in the next few hours, across the club, earliest first.

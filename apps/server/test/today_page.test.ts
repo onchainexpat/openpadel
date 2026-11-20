@@ -92,10 +92,28 @@ test("the owner's Today has every need, with names, the takings and the changes 
 
 test("the menu's counts add up Today's needs and say how many asks and questions wait", async () => {
   const r = await get("/staff/counts", "robin@example.test");
-  assert.deepEqual(r.json, { approvals: 1, questions: 1, today: 6, disputes: 1 });
+  assert.deepEqual(r.json, { approvals: 1, questions: 1, today: 6, disputes: 1, moving: false });
   // A coach on their own has none of these in their menu.
-  assert.deepEqual((await get("/staff/counts", as("Cora"))).json, { approvals: 0, questions: 0, today: 0, disputes: 0 });
+  assert.deepEqual((await get("/staff/counts", as("Cora"))).json, { approvals: 0, questions: 0, today: 0, disputes: 0, moving: false });
   assert.deepEqual((await get("/staff/today", as("Cora"))).json.needs, []);
+});
+
+test("the menu offers Moving in while a move is under way: in practice, or once the club says where it's coming from, until it's finished", async () => {
+  const moving = async () => (await get("/staff/counts", "robin@example.test")).json.moving;
+  const was = process.env.KUMI_PRACTICE;
+  try {
+    delete process.env.KUMI_PRACTICE;
+    assert.equal(await moving(), false);   // a live club that never started a move
+    process.env.KUMI_PRACTICE = "1";
+    assert.equal(await moving(), true);    // a new club in practice
+    delete process.env.KUMI_PRACTICE;
+    await db.insertInto("move_in").values({ singleton: true } as any).onConflict((oc) => oc.column("singleton").doNothing()).execute();
+    await db.updateTable("move_in").set({ source: "courtreserve" } as any).execute();
+    assert.equal(await moving(), true);    // live, and moving from CourtReserve
+    await db.updateTable("move_in").set({ finished_at: new Date() } as any).execute();
+    assert.equal(await moving(), false);   // the move is finished
+    await db.updateTable("move_in").set({ source: null, finished_at: null } as any).execute();
+  } finally { if (was === undefined) delete process.env.KUMI_PRACTICE; else process.env.KUMI_PRACTICE = was; }
 });
 
 test("the accountant reads the money and what's owed, not the asks, questions or scores", async () => {
@@ -119,7 +137,7 @@ test("a bookings-only role sees no one's name on Today or Approvals, and an ask'
   assert.equal(a.json.waiting[0].title, "Count a game for levels");
   for (const body of [JSON.stringify(t.json), JSON.stringify(a.json)])
     for (const name of ["Annabel", "Orinoco", "Cora", "Robin"]) assert.ok(!body.includes(name), `${name} in ${body}`);
-  assert.deepEqual((await get("/staff/counts", as("Cleo"))).json, { approvals: 1, questions: 0, today: 1, disputes: 0 });
+  assert.deepEqual((await get("/staff/counts", as("Cleo"))).json, { approvals: 1, questions: 0, today: 1, disputes: 0, moving: false });
 });
 
 test("Approvals: who asked, what it changes and when it runs out; the asker sees it as theirs; answering moves it to done", async () => {

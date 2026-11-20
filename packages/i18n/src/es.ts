@@ -5435,6 +5435,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   // The staff app's tabs at the bottom of a phone (phone_tabs.ts).
   "ui.phone_tabs": "Páginas principales",
   "ui.phone_tab_programs": "Programas",
+  "ui.phone_tab_approvals": "Aprobar",
   "ui.occupancy_day": "Ocupación {percent}%",
   "ui.unpaid_pill": "Sin pagar",
   "ui.legend": "Qué significan los colores",
@@ -6305,6 +6306,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "connector.not_checked": "Todavía no se revisó.",
   "connector.ask_prompt": "Busca en el catálogo de openPadel un plugin que haga lo que necesito, muéstrame en palabras lo que pide antes de instalarlo, e instálalo solo cuando te diga que sí.",
   "ui.nav_connectors": "Conectores",
+  "ui.nav_moving": "La mudanza",
   "ui.connectors_title": "Conectores",
   "ui.connectors_intro": "Todo lo que el club conecta: lo que cada uno puede hacer, y si funciona en este momento.",
   "ui.connectors_failed": "No se pudieron leer los conectores en este momento.",
