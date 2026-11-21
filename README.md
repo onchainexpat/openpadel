@@ -4,7 +4,7 @@ Free and open source padel software (MIT licence) that runs a club: bookings, pa
 open matches, clinics and fair levels, with the club's own app in its name and colour and a staff app that
 works on a phone. Members can ask the club questions in the app, and members and staff can connect
 their own AI assistant (Claude, ChatGPT), or work from a terminal with the `openpadel` command. A club runs it
-on its own server, or [Kumi](https://kumi.club), the hosted service, runs it for them.
+on its own server, or Kumi, the hosted service, runs it for them.
 
 openPadel was called Kumi until 7 November 2026. The `kumi` command still works, and the settings, paths and
 packages keep their `kumi` names.
