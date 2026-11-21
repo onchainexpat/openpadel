@@ -7,12 +7,19 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.8.1 (2026-11-21)
+
+openPadel's plugin catalog is published, and a club's server reads it.
 
 ### Changed
 - **The plugin catalog is published** at `https://plugins.openpadel.dev/catalog.json`, with each plugin's release on
   GitHub. A production server with `KUMI_PLUGIN_CATALOG_URL` unset reads it there (kept ten minutes), and the sample
   bundled with openPadel when it can't reach it. A catalog the club set is read as before.
+- The README no longer links to kumi.club, which doesn't have a page yet.
+
+### When updating
+Nothing to do. A server with `KUMI_PLUGIN_CATALOG_URL` set keeps its catalog; one without it now reads openPadel's
+own online, so plugins added to the catalog after this release show in `openpadel plugin search` without an update.
 
 ## 0.8.0 (2026-11-20)
 
