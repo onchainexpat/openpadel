@@ -43,8 +43,11 @@ export interface PluginIo {
   fetchText(url: string, max: number): Promise<string>;
   /** POST a body; the answer's status and (some of) its text. */
   post(url: string, body: string, headers: Record<string, string>): Promise<{ status: number; body: string }>;
-  /** Where the catalog's index is: an address or a file; null for the sample bundled with openPadel. */
+  /** Where the catalog's index is: an address or a file; null for openPadel's own (or the bundled sample). */
   catalogUrl: string | null;
+  /** With no catalogUrl, read openPadel's own catalog online, falling back to the bundled sample when it can't be
+   *  reached (a server with no internet). Off in development and tests, which read the sample. */
+  ownCatalogOnline?: boolean;
   /** The club's own address, for a plugin to reach the door and check the club's key. */
   publicUrl: string;
 }
@@ -73,25 +76,31 @@ export const OPENPADEL_CATALOG_URL = "https://plugins.openpadel.dev/catalog.json
 export const ownCatalog = (url: string | null | undefined) => !url?.trim() || url.trim().replace(/\/+$/, "") === OPENPADEL_CATALOG_URL;
 export interface CatalogEntry { manifest: Manifest }
 const SAMPLE = new URL("./plugin_catalog.sample.json", import.meta.url);
-let catalogCache: { at: number; url: string | null; entries: CatalogEntry[]; skipped: string[] } | null = null;
-/** The catalog's plugins (the index at the configured address, or the bundled sample), each manifest checked; kept ten
- *  minutes. Entries that don't check are left out and named in `skipped`. */
+let catalogCache: { at: number; url: string | null; source: string; entries: CatalogEntry[]; skipped: string[] } | null = null;
+/** The catalog's plugins (the index at the configured address, openPadel's own online, or the bundled sample), each
+ *  manifest checked; kept ten minutes. Entries that don't check are left out and named in `skipped`. */
 export async function pluginCatalog(force = false): Promise<{ entries: CatalogEntry[]; skipped: string[]; source: string }> {
   const url = io.catalogUrl;
-  if (!force && catalogCache && catalogCache.url === url && Date.now() - catalogCache.at < 10 * 60_000) return { entries: catalogCache.entries, skipped: catalogCache.skipped, source: url ?? "sample" };
-  let raw: string;
-  try {
-    raw = !url ? readFileSync(SAMPLE, "utf8") : /^https?:\/\//.test(url) ? await io.fetchText(checkWebhookUrl(url), 2_000_000) : readFileSync(url.replace(/^file:\/\//, ""), "utf8");
-  } catch (e) { throw new KumiError("error.plugin_catalog", { why: String((e as Error).message ?? e).slice(0, 200) }, 502); }
-  let index: { plugins?: unknown };
-  try { index = JSON.parse(raw); } catch { throw new KumiError("error.plugin_catalog", { why: "not JSON" }, 502); }
+  if (!force && catalogCache && catalogCache.url === url && Date.now() - catalogCache.at < 10 * 60_000) return { entries: catalogCache.entries, skipped: catalogCache.skipped, source: catalogCache.source };
+  let index: { plugins?: unknown } | null = null, source = url ?? "sample";
+  if (!url && io.ownCatalogOnline) {
+    try { index = JSON.parse(await io.fetchText(OPENPADEL_CATALOG_URL, 2_000_000)); source = OPENPADEL_CATALOG_URL; } catch { index = null; }
+  }
+  if (!index) {
+    let raw: string;
+    try {
+      raw = !url ? readFileSync(SAMPLE, "utf8") : /^https?:\/\//.test(url) ? await io.fetchText(checkWebhookUrl(url), 2_000_000) : readFileSync(url.replace(/^file:\/\//, ""), "utf8");
+    } catch (e) { throw new KumiError("error.plugin_catalog", { why: String((e as Error).message ?? e).slice(0, 200) }, 502); }
+    try { index = JSON.parse(raw); } catch { throw new KumiError("error.plugin_catalog", { why: "not JSON" }, 502); }
+  }
+  if (!index || typeof index !== "object") throw new KumiError("error.plugin_catalog", { why: "not JSON" }, 502);
   const entries: CatalogEntry[] = [], skipped: string[] = [];
   for (const p of Array.isArray(index.plugins) ? index.plugins.slice(0, 500) : []) {
     const name = String((p as { manifest?: { name?: unknown } })?.manifest?.name ?? "?");
     try { entries.push({ manifest: parseManifest((p as { manifest: unknown }).manifest) }); } catch { skipped.push(name); }
   }
-  catalogCache = { at: Date.now(), url, entries, skipped };
-  return { entries, skipped, source: url ?? "sample" };
+  catalogCache = { at: Date.now(), url, source, entries, skipped };
+  return { entries, skipped, source };
 }
 /** Plugins in the catalog whose name, publisher or description has every word asked for. */
 export async function searchCatalog(q: string): Promise<CatalogEntry[]> {

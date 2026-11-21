@@ -57,24 +57,22 @@ manifest checks, catalog.json is current, and the manifests are the ones in docs
 One of this repository's own plugins is added the same way: copy its manifest from `docs/plugins/examples/<name>/`,
 run `pin`, then build.
 
-## Publishing it (the owner's steps)
+## Publishing it
 
-Nothing here is published yet. To make it the catalog every club reads:
+The catalog is published at `https://plugins.openpadel.dev/catalog.json`:
 
-1. **The repository.** Create `openpadel/plugins` on GitHub (public), and copy this folder's contents to its root.
-   Turn on branch protection for `main` (a review needed, and a check that runs `node tools/build.ts --check`).
-   The build imports the manifest parser from openPadel (`@kumi/core`): in its own repository, add openPadel as a
-   pinned dependency (a git tag), or vendor `plugin_manifest.ts` with a test that it matches.
-2. **The releases.** For each plugin, a GitHub release `v<version>` in its own repository (`openpadel/plugin-<name>`)
-   with the `.tar.gz` that `pin` made, so each `release.json` address answers with exactly those bytes.
-3. **The address.** Serve `catalog.json` at `https://plugins.openpadel.dev/catalog.json`: a DNS record for
-   `plugins.openpadel.dev` and any static host (GitHub Pages from the repository works), https only.
-4. **The hosted plugins.** The catalog's manifests are remote ones that run at `https://<name>.plugins.openpadel.dev/v1`.
-   Until openPadel runs those, clubs install them locally (`openpadel plugin service`) with the pinned release.
+- **The address.** [.github/workflows/catalog.yml](../.github/workflows/catalog.yml) checks catalog.json is current and
+  publishes it with GitHub Pages whenever `catalog/` changes on main (or when started by hand). The DNS record for
+  `plugins.openpadel.dev` is a CNAME to `onchainexpat.github.io` (not proxied), and Pages serves it over https only.
+- **The releases.** Each plugin's pinned `.tar.gz` is a release of this repository, `plugin-<name>-v<version>`, made
+  with `gh release create plugin-<name>-v<version> plugins/<name>/dist/<name>-<version>.tar.gz --latest=false` after
+  `pin`, so each `release.json` address answers with exactly those bytes. A new version is a new release; a published
+  one is never replaced.
+- **A club's server** reads it when `KUMI_PLUGIN_CATALOG_URL` is unset, and the bundled sample
+  (packages/core/src/plugin_catalog.sample.json) when it can't reach it. A club that set `KUMI_PLUGIN_CATALOG_URL` to
+  another catalog keeps it, and `openpadel doctor` keeps warning that its catalog isn't openPadel's.
+- **The hosted plugins.** The catalog's manifests are remote ones that run at `https://<name>.plugins.openpadel.dev/v1`.
+  Until openPadel runs those, clubs install them locally (`openpadel plugin service`) with the pinned release.
 
-**What changes in the setting then:** nothing for a club. `KUMI_PLUGIN_CATALOG_URL` stays unset; openPadel's own
-address is built in (`OPENPADEL_CATALOG_URL` in packages/core/src/plugins.ts, `https://plugins.openpadel.dev/catalog.json`).
-Today an unset setting reads the sample bundled with openPadel (packages/core/src/plugin_catalog.sample.json); once the
-address answers, openPadel's next release reads it there when the setting is unset (a one-line change in
-`pluginCatalog`), and keeps the sample only for a server with no internet. A club that set `KUMI_PLUGIN_CATALOG_URL` to
-another catalog keeps it, and `openpadel doctor` keeps warning that its catalog isn't openPadel's.
+The catalog lives in openPadel's own repository rather than a repository of its own: the GitHub name `openpadel` is
+taken, and here the plugins and the catalog can't drift apart.

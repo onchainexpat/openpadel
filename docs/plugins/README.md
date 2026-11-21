@@ -69,8 +69,9 @@ So the club's agent can do the installing, and the owner's yes to the preview is
 ### The catalog
 
 `openpadel plugin search` reads a JSON index of manifests: openPadel's reviewed catalog, or another the server names in
-`KUMI_PLUGIN_CATALOG_URL` (an https address, or a file on the server). Without one it reads a sample bundled with
-openPadel, with the court lights example.
+`KUMI_PLUGIN_CATALOG_URL` (an https address, or a file on the server). Without one, a club's server reads openPadel's
+own at `https://plugins.openpadel.dev/catalog.json`, and a sample bundled with openPadel when it can't reach it (no
+internet) or isn't in production.
 Whatever a catalog lists counts as reviewed, so `openpadel doctor` warns while the server reads one other than
 openPadel's own (`https://plugins.openpadel.dev/catalog.json`) or the bundled sample.
 openPadel's catalog is kept as files in [catalog/](../../catalog/README.md): one folder per plugin with its manifest
