@@ -1,0 +1,47 @@
+name: From a club using openPadel
+description: Something a club's staff or members ran into while using openPadel day to day (a club's agent can file it too).
+labels: [problem, from-a-club]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for telling us. This repository is public: **no members' names, emails, phone numbers or anything
+        personal**, in the words or the screenshots. Use made-up names ("Player A") and crop or blur anything personal.
+        A security problem goes privately to the Security tab instead (see SECURITY.md).
+  - type: dropdown
+    id: app
+    attributes: { label: Where, options: ["The staff app", "The members' app", "The command line (openpadel)", "The club's connector or agent (/mcp)", "Email or texts the club sent", "Something else"] }
+    validations: { required: true }
+  - type: input
+    id: page
+    attributes: { label: Which page or command, description: "For example: Schedule, a booking's side panel, Payments, openpadel plugin search.", placeholder: "Schedule" }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "What you expected, and what happened instead." }
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes: { label: How to make it happen again, description: "Step by step, from opening the app.", placeholder: "1. Open Schedule on today\n2. Hover a booking\n3. ..." }
+  - type: textarea
+    id: shots
+    attributes: { label: Screenshots, description: "Drag them in. Nothing personal in them, please." }
+  - type: dropdown
+    id: who
+    attributes: { label: Who saw it, options: ["Owner or manager", "Front desk", "Coach", "Accountant", "A member", "A guest or someone signing up", "The club's agent"] }
+  - type: input
+    id: version
+    attributes: { label: openPadel version, description: "The club's address with /health at the end shows it, for example 0.8.1.", placeholder: "0.8.1" }
+    validations: { required: true }
+  - type: input
+    id: device
+    attributes: { label: Device and browser, placeholder: "Windows laptop, Chrome; or iPhone, the installed app" }
+  - type: dropdown
+    id: lang
+    attributes: { label: Language the app was in, options: ["English", "Spanish"] }
+  - type: checkboxes
+    id: private
+    attributes:
+      label: Before sending
+      options:
+        - label: Nothing in this issue names or identifies a member, player or staff member.
+          required: true

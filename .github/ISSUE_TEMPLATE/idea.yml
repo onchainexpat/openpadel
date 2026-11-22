@@ -1,5 +1,5 @@
 name: An idea
-description: Something Kumi should do for a club, its staff or its players.
+description: Something openPadel should do for a club, its staff or its players.
 labels: [idea]
 body:
   - type: textarea
@@ -8,4 +8,4 @@ body:
     validations: { required: true }
   - type: textarea
     id: today
-    attributes: { label: What happens today, description: "In Kumi, or how the club works around it." }
+    attributes: { label: What happens today, description: "In openPadel, or how the club works around it." }
