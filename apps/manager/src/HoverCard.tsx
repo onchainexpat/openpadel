@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { Icon, dollars, lang, t } from "@kumi/ui";
 import type { Item } from "./Courts.tsx";
 import { placeCard } from "./card_place.ts";
+import { ImportedMark } from "./ImportedMark.tsx";
 
 /** One row of the card: a player, or a place still open. */
 type Row = { name: string; guest?: boolean; level?: number; plan?: string; paid_cents?: number; owed_cents?: number };
@@ -43,7 +44,7 @@ export function HoverCard({ id, it, court, clock, money, anchor, onClose }: { id
         <strong>{cardTitle(it)}</strong>
         <span class="meta">{t("ui.card_when", { court, from: clock(it.start), to: clock(it.end) })}</span>
         {/* The mark beside its words, so it's read once. */}
-        {it.kind === "mirror" && <span class="hc-imported"><span class="pt-mark"><Icon name="import" /></span>{t("ui.imported_playtomic")}</span>}
+        {it.kind === "mirror" && <span class="hc-imported"><ImportedMark beside />{t("ui.imported_playtomic")}</span>}
       </div>
       {(rows.length > 0 || open > 0) && <ul class="hc-rows">
         {rows.map((r) => <li>

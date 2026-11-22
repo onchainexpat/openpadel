@@ -118,10 +118,14 @@ test("the hover card: hover or keyboard focus, never a finger; described-by its 
   assert.match(c, /export const HoverCard = lazyPage\(\(\) => import\("\.\/HoverCard\.tsx"\)/);
 });
 
-test("a Playtomic copy is marked as imported, never with Playtomic's logo; the legend shows the mark only on a day with copies", () => {
+test("a Playtomic copy carries Playtomic's mark, named \"Imported from Playtomic\"; the legend shows it only on a day with copies", () => {
   const c = src("Courts.tsx"), mark = src("ImportedMark.tsx");
-  assert.match(mark, /<Icon name="import" label=\{t\("ui\.imported_playtomic"\)\} \/>/);
-  assert.match(mark, /title=\{t\("ui\.imported_playtomic"\)\}/);
+  assert.match(mark, /role="img" aria-label=\{t\("ui\.imported_playtomic"\)\} title=\{t\("ui\.imported_playtomic"\)\}/);
+  assert.match(readFileSync(new URL("../../../packages/ui/src/styles.css", import.meta.url), "utf8"), /\.pt-mark \{[^}]*playtomic-mark\.webp\?no-inline/);
+  assert.match(c, /\{playtomic && <li><ImportedMark beside \/>\{t\("ui\.imported_playtomic"\)\}<\/li>\}/);
+  assert.match(src("HoverCard.tsx"), /<ImportedMark beside \/>\{t\("ui\.imported_playtomic"\)\}/);
+  // Whose the picture is, and what it's for, beside it.
+  assert.match(readFileSync(new URL("../../../packages/ui/assets/README.md", import.meta.url), "utf8"), /Playtomic's mark[\s\S]*only to say where a booking came from/);
   assert.match(c, /\{it\.kind === "mirror" && <ImportedMark class="tg-mark" \/>\}/);
   assert.match(c, /const playtomic = g\.courts\.some\(\(c\) => c\.items\.some\(\(it\) => it\.kind === "mirror"\)\);/);
   assert.doesNotMatch(c, /"playtomic" as const/, "no Playtomic colour in the legend");

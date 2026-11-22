@@ -279,7 +279,7 @@ const kindWords = (k: Kind) => t(`ui.kind_${k}` as Key);
 function Legend({ playtomic }: { playtomic: boolean }) {
   const kinds: Kind[] = ["booking", "open_match", "learning", "event", "blocked"];
   return <ul class="legend" aria-label={t("ui.legend")}>{kinds.map((k) => <li><span class={`swatch k-${k}`} aria-hidden="true" />{kindWords(k)}</li>)}
-    {playtomic && <li><span class="pt-mark" aria-hidden="true"><Icon name="import" /></span>{t("ui.imported_playtomic")}</li>}</ul>;
+    {playtomic && <li><ImportedMark beside />{t("ui.imported_playtomic")}</li>}</ul>;
 }
 
 /** Making a booking from + Create: each court's free time that day, to choose from. */

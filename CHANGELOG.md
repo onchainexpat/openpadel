@@ -20,8 +20,8 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   else's booking as "Booked" and nothing more. It never opens from a finger: a tap opens the side panel as before. The
   week view's items have it too.
 - **Playtomic copies are coloured as what they are**: a booking as a booking, an open match or open play as an open
-  match, a class or course as a lesson, a tournament or league match as an event, with a small "imported" mark in the
-  corner saying it came from Playtomic (a plain arrow, not Playtomic's logo). The legend shows the mark, instead of a
+  match, a class or course as a lesson, a tournament or league match as an event, with Playtomic's small logo in the
+  corner saying it came from Playtomic (named "Imported from Playtomic"). The legend shows the mark, instead of a
   Playtomic colour, on days with copies. The day's occupancy and bookings count them as before.
 
 ### Fixed
