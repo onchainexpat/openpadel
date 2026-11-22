@@ -228,7 +228,10 @@ postgres user can open.
 1. Set up a new server with `server-setup.sh` and ship the code (see [server.md](server.md)).
 2. **Owner:** replace the new server's `OPENPADEL_BACKUP_KEY` line with the one from the password manager,
    and add the five `OPENPADEL_OFFSITE_*` settings, in `/etc/kumi/kumi.env`. If you kept the old `OPENPADEL_SECRET_KEY`, add it as
-   `OPENPADEL_SECRET_KEY_PREVIOUS` (the new server made its own `OPENPADEL_SECRET_KEY`).
+   `OPENPADEL_SECRET_KEY_PREVIOUS` (the new server made its own `OPENPADEL_SECRET_KEY`). The storage's settings go in
+   the file here even if they were set in the app before: the app keeps them in the database you're about to
+   restore, so keep a copy of the storage key in the password manager too. Once restored, they can come out of the
+   file again.
 3. `sudo openpadel restore offsite:latest --yes` (it stops the server, restores, and starts it again), then
    `openpadel rotate-key` and `openpadel doctor`.
 4. To go to a later minute than last night's backup: the old server's point-in-time archive is offsite, in its
