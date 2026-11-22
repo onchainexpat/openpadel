@@ -219,6 +219,9 @@ case "${1:-}" in
     # it's one of the ways back.
     if [ -n "$extract" ]; then if [ "$rc" = 4 ]; then echo "kumi: the database as it was at that minute is in $extract" >&2; else rm -f "$extract"; fi; fi
     exit $rc;;
+  settings)
+    # Renaming the settings file's old names is root's, since the file is root:kumi (640): as root, without reading it in.
+    if [ "${2:-}" = rename ]; then root settings; cd /opt/kumi/app && exec env OPENPADEL_CALLER_DIR="$OLDPWD" /usr/local/bin/node apps/server/src/cli.ts "$@"; fi;;
   pitr)
     # The archive is the postgres user's: its jobs run as that user (kumi pitr status and conf don't need to). In the
     # club's database they're the kumi role, never Postgres's superuser (the ident map below lets them be).

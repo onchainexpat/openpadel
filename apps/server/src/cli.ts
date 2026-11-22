@@ -38,6 +38,8 @@
 //   kumi restore-test              restore the newest backup into a scratch database and check it
 //                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
 //   kumi rotate-key                seal every secret with OPENPADEL_SECRET_KEY (the old one in OPENPADEL_SECRET_KEY_PREVIOUS)
+//   kumi settings rename [--file=<path>]   the settings file's old KUMI_ names to OPENPADEL_ ones (settings_file.ts), a dated
+//                                  copy kept beside it; optional, since the old names still work. Names only, never a value
 //   kumi keys                      whether OPENPADEL_SECRET_KEY and OPENPADEL_BACKUP_KEY are set, and each one's last 4 characters
 //                                  only: for the owner to check the copies they keep match (never the keys themselves)
 //   kumi texting plan|apply|status [club.yaml]   register the club's texting with US carriers through its own
@@ -71,6 +73,7 @@ import { memberUrl } from "./addresses.ts";
 import { pitrMain, toArg } from "./pitr_cli.ts";
 import { afterRestore, readSentBefore, type AfterRestore, type KeepDeleted } from "./after_restore.ts";
 import { setting } from "@kumi/core";
+import { renameSettingsFile } from "./settings_file.ts";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
@@ -130,7 +133,7 @@ async function formatOf(url: string): Promise<void> {
 /** The commands that run on the club's server itself, against its database. Everything else is the club's own
  *  commands, from any computer signed in to the club (cli_remote.ts: kumi login, kumi help). */
 const ON_SERVER = new Set(["setup", "import", "move-in", "texting", "usage", "export", "moved", "read-only", "leaving", "held", "doctor", "reset-sign-in", "sign-in-link", "owner", "backup",
-  "offsite", "pitr", "restore", "restore-test", "rotate-key", "keys", "update", "rollback", "releases"]);
+  "offsite", "pitr", "restore", "restore-test", "rotate-key", "keys", "settings", "update", "rollback", "releases"]);
 
 async function main(): Promise<number> {
   const first = args.find((a) => !a.startsWith("-"));
@@ -681,6 +684,19 @@ async function main(): Promise<number> {
   }
   // The two keys the owner keeps away from the server: set or missing, and the last 4 characters only, so the owner (or the
   // agent, reading it to them) can check the copy in their password manager is the right one without anyone seeing a key.
+  // The settings file's old names to the new ones: names only, never a value (settings_file.ts).
+  if (cmd === "settings" && sub === "rename") {
+    const file = resolve(setting("CALLER_DIR") ?? ".", flag("file") ?? "/etc/kumi/kumi.env"), r = renameSettingsFile(file);
+    if (!r) { if (json) out({ ok: false, file, error: "no_file" }); else console.error(t(lang, "cli.settings_rename_no_file", { file })); return 2; }
+    if (json) { out({ ok: true, file, ...r }); return 0; }
+    if (!r.changed) { console.log(t(lang, "cli.settings_rename_none", { file })); return 0; }
+    const now = (old: string) => old.replace(/^KUMI_/, "OPENPADEL_");
+    for (const n of r.renamed) console.log(t(lang, "cli.settings_renamed", { old: n, new: now(n) }));
+    for (const n of r.dropped) console.log(t(lang, "cli.settings_rename_dropped", { old: n, new: now(n) }));
+    for (const n of r.kept_old) console.log(t(lang, "cli.settings_rename_kept", { old: n, new: now(n) }));
+    console.log(t(lang, "cli.settings_rename_done", { backup: r.backup! }));
+    return 0;
+  }
   if (cmd === "keys") {
     const keys = (["OPENPADEL_SECRET_KEY", "OPENPADEL_BACKUP_KEY"] as const).map((name) => {
       const v = setting(name)?.trim().replace(/=+$/, "");
