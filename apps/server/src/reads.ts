@@ -4,7 +4,7 @@ import { Hono, type Context } from "hono";
 
 import { sql } from "kysely";
 import { both, dateTime, plainAmount, t, type Key, type Lang } from "@kumi/i18n";
-import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, levelOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared, claimQueue, claimProof, clubNewsList, moveFilesStatus, MOVE_SYSTEMS, type MoveSystem } from "@kumi/core";
+import { decide, getAction, moneyBooks, lessonCoaches, lessonTimes, taxSplit, isUuid, onDate, weekdayOf, coachOwners, itsTimeNow, inLang, moveInStatus, archiveOf, comparison, takeOverCandidates, typeKey, creditBalance, competitionView, seriesOf, membershipDue, toGiveBack, assistantsOf, personEmailProblem, blockSeriesAt, coachEarnings, coachSchedule, coachItem, coachStudents, rosterOf, ATTENDANCE_HOURS, STUDENT_DAYS, coveredBy, currentPolicy, currentWaiver, householdOf, waiverStatus, endDay, levelQueue, importOptions, MOVE_DAYS, MOVE_LIMIT, REVIEW_EVERY_DAYS, SELF_ADJUST_GAMES, SELF_ADJUST_MAX, clubLine, sessionPlayers, freeCourts, gameView, KumiError, localDate, occupied, courtOpenings, courtOpeningsOn, atLocal, spanOf, PLAYTOMIC, paidFor, coveredFor, planCounts, quote, shownOdds, standings, type Db, type Owners, kidOf, monthSpent, rulesText, questionList, questionThread, searchFacts, memberPlan, planNamesOf, levelOf, levelsOf, managersOf, segmentMembers, type Filters, membersFrom, publishCheck, COACH_AREAS, staffReach, roleCatalogue, secondYesView, roleGrantsView, activeFactor, recoveryLeft, staffAlerts, currentAnswerer, factIn, textingOn, textingRegistration, textUsage, usageView, supportRoleKeys, promoOff, clubPhoneShown, moveState, broughtTotals, broughtPeople, upcomingCompared, claimQueue, claimProof, clubNewsList, moveFilesStatus, MOVE_SYSTEMS, type MoveSystem } from "@kumi/core";
 import { textingStatusText } from "./texting.ts";
 import { proofResponse } from "./level_proof.ts";
 import { shortContact } from "./mcp.ts";
@@ -436,7 +436,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const items = (await occupied(db, courts.map((x) => x.id), dayStart, dayEnd, now)).filter((t) => localDate(new Date(t.start), loc.time_zone) === date || localDate(new Date(t.end), loc.time_zone) === date);
     const ids = (k: "booking_id" | "block_id" | "session_id") => [...new Set(items.map((t) => t[k]).filter((x): x is string => Boolean(x)))];
     const bookings = ids("booking_id").length ? await db.selectFrom("booking").leftJoin("person", "person.id", "booking.organiser_id").leftJoin("person as coach", "coach.id", "booking.coach_id")
-      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.coach_id", "booking.price_cents", "booking.balance_cents", "booking.invite_code", "booking.note", "booking.player_note", "person.display_name", "coach.display_name as coach"])
+      .select(["booking.id", "booking.code", "booking.status", "booking.kind", "booking.pay_mode", "booking.organiser_id", "booking.coach_id", "booking.price_cents", "booking.balance_cents", "booking.invite_code", "booking.note", "booking.player_note", "booking.players", "person.display_name", "coach.display_name as coach"])
       .select((eb) => eb.selectFrom("payment").innerJoin("booking_player", "booking_player.id", "payment.booking_player_id").select((x) => x.fn.sum<string>("payment.amount_cents").as("c"))
         .whereRef("booking_player.booking_id", "=", "booking.id").where("payment.status", "=", "succeeded").as("paid_cents"))
       // What promo codes took off: covered, not owed, so the desk isn't shown a discount to take as money.
@@ -452,7 +452,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
       .where("booking.id", "in", ids("booking_id")).execute() : [];
     // Who's playing in each, and what players said about running late (today's word, newest first).
     const players = ids("booking_id").length ? await db.selectFrom("booking_player").leftJoin("person", "person.id", "booking_player.person_id")
-      .select(["booking_player.id", "booking_player.booking_id", "booking_player.person_id", "person.display_name", "booking_player.guest_name", "booking_player.checked_in_at"])
+      .select(["booking_player.id", "booking_player.booking_id", "booking_player.person_id", "person.display_name", "booking_player.guest_name", "booking_player.checked_in_at", "booking_player.share_cents"])
       .where("booking_player.booking_id", "in", ids("booking_id")).where("booking_player.removed_at", "is", null).where("booking_player.leaving_at", "is", null).orderBy("booking_player.id").execute() : [];
     const late = ids("booking_id").length ? await db.selectFrom("event_outbox").select(["payload", "created_at"]).where("topic", "=", "booking.running_late")
       .where("created_at", ">=", dayStart).where(sql<boolean>`payload->>'booking_id' = ANY(${ids("booking_id")})`).orderBy("id", "desc").execute() : [];
@@ -462,7 +462,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // A program date's kind (a clinic, a league...), so the grid colours it; and which bookings are open matches.
     const sessions = ids("session_id").length ? await db.selectFrom("session").innerJoin("program", "program.id", "session.program_id").select(["session.id", "program.id as program_id", "program.name", "program.kind"]).where("session.id", "in", ids("session_id")).execute() : [];
     const matches = new Set(ids("booking_id").length ? (await db.selectFrom("open_match").select("booking_id").where("booking_id", "in", ids("booking_id")).execute()).map((m) => m.booking_id) : []);
-    const mirror = await db.selectFrom("mirror_booking").select(["court_time_id", "booking_type"]).where("court_time_id", "in", items.filter((t) => t.kind === "mirror").map((t) => t.id).concat(["00000000-0000-0000-0000-000000000000"])).execute();
+    const mirror = await db.selectFrom("mirror_booking").select(["court_time_id", "booking_type", "ref"]).where("court_time_id", "in", items.filter((t) => t.kind === "mirror").map((t) => t.id).concat(["00000000-0000-0000-0000-000000000000"])).execute();
     // Places players gave up after the deadline, still empty: staff can open them in the app or give them away.
     const empty = ids("booking_id").length ? await db.selectFrom("booking_player").innerJoin("person", "person.id", "booking_player.person_id")
       .select(["booking_player.id", "booking_player.booking_id", "booking_player.fill_refund_percent", "person.display_name as name"])
@@ -480,7 +480,24 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     // Bookings list decides), and a coach on their own lesson: a role the club made covering bookings and not members
     // runs the court without them. Who booked and plays in each Playtomic copy, the same.
     const people = await seesPeople(viewer);
-    const names = people ? await playtomicNames(items.filter((x) => x.kind === "mirror").map((x) => x.id)) : new Map<string, { who: string | null; players: string[] }>();
+    const names = people ? await playtomicNames(items.filter((x) => x.kind === "mirror").map((x) => x.id)) : new Map<string, PlaytomicNames>();
+    // For the hover card: each player's level and membership plan here, when they have one, under the names' rule (a
+    // Playtomic player only when the archive row is matched to someone here); and, for money readers, what each place
+    // has paid of its part, and a Playtomic copy's price and whether it was paid there, as Playtomic said.
+    const known = [...new Set([...players.map((p) => p.person_id), ...[...names.values()].flatMap((n) => n.roster.map((r) => r.person_id))].filter((x): x is string => Boolean(x)))];
+    const [levels, plans] = await Promise.all([levelsOf(db, known), planNamesOf(db, known, l, now)]);
+    const placeIds = money ? players.map((p) => p.id) : [];
+    const paidRows = placeIds.length ? await db.selectFrom("payment").select(["booking_player_id", (x) => x.fn.sum<string>("amount_cents").as("paid"), sql<string>`coalesce(sum(${promoOff()}), 0)`.as("off")])
+      .where("booking_player_id", "in", placeIds).where("status", "=", "succeeded").groupBy("booking_player_id").execute() : [];
+    const backRows = placeIds.length ? await db.selectFrom("refund").innerJoin("payment", "payment.id", "refund.payment_id").select(["payment.booking_player_id", (x) => x.fn.sum<string>("refund.amount_cents").as("back")])
+      .where("payment.booking_player_id", "in", placeIds).where("refund.status", "!=", "failed").groupBy("payment.booking_player_id").execute() : [];
+    const placePaid = (p: (typeof players)[number]) => {
+      const r = paidRows.find((x) => x.booking_player_id === p.id), paid = Number(r?.paid ?? 0) - Number(backRows.find((x) => x.booking_player_id === p.id)?.back ?? 0);
+      return { paid_cents: paid, owed_cents: Math.max(0, p.share_cents - paid - Number(r?.off ?? 0)) };
+    };
+    const ptMoney = money && mirror.length ? await db.selectFrom("playtomic_booking").select(["price_cents", "payment_status", sql<string>`booking_id || ':' || resource_id`.as("ref")])
+      .where(sql<boolean>`booking_id || ':' || resource_id = ANY(${mirror.map((m) => m.ref)})`).execute() : [];
+    const about = (personId: string | null, named: boolean) => named && personId ? { ...(levels.has(personId) ? { level: levels.get(personId)! } : {}), ...(plans.has(personId) ? { plan: plans.get(personId)! } : {}) } : {};
     const paidPart = (b: (typeof bookings)[number] | undefined) => money ? { price_cents: b?.price_cents ?? 0, paid_cents: Number(b?.paid_cents ?? 0) - Number(b?.back_cents ?? 0),
       off_cents: Number(b?.off_cents ?? 0), pt_cents: Number(b?.pt_cents ?? 0), balance_cents: b?.balance_cents ?? 0 } : {};
     return c.json({ date, time_zone: loc.time_zone, open, now: now.toISOString(), today: localDate(now, loc.time_zone), money, people, courts: courts.map((ct) => ({ ...ct, open: hours.get(ct.id) ?? null, items: items.filter((x) => x.court_id === ct.id).map((x) => {
@@ -497,36 +514,46 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
         invite_code: b?.kind === "court" && b.pay_mode === "whole" && b.status === "confirmed" ? b.invite_code : null,
         seats: players.filter((p) => p.booking_id === x.booking_id && p.person_id).map((p) => ({ id: p.id, name: nm(p.display_name ?? ""), booker: p.person_id === b?.organiser_id })),
         empty_places: empty.filter((e) => e.booking_id === x.booking_id).map((e) => ({ id: e.id, name: nm(e.name), open: e.fill_refund_percent !== null })),
-        // Who's checked in at the desk (booking.check_in): every place still in it, guests too, with the names as above.
-        arrivals: players.filter((p) => p.booking_id === x.booking_id).map((p) => ({ id: p.id, name: nm(p.display_name ?? p.guest_name ?? ""), guest: !p.person_id, in: Boolean(p.checked_in_at) })) }; }
+        // Who's checked in at the desk (booking.check_in): every place still in it, guests too, with the names as above;
+        // and for the hover card, each player's level and plan here (with the names) and what the place has paid (money).
+        arrivals: players.filter((p) => p.booking_id === x.booking_id).map((p) => ({ id: p.id, name: nm(p.display_name ?? p.guest_name ?? ""), guest: !p.person_id, in: Boolean(p.checked_in_at),
+          ...about(p.person_id, named), ...(money ? placePaid(p) : {}) })),
+        // How many places it has, when that's more than the players in it (an open match's open places, or a court's
+        // places not yet named).
+        ...(b && b.players > players.filter((p) => p.booking_id === x.booking_id).length ? { places: b.players } : {}) }; }
       if (x.block_id) { const k = blocks.find((y) => y.id === x.block_id); return { ...base, block_id: x.block_id, series: Boolean(k?.series_id), label: [t(l, `block.${k?.reason ?? "other"}` as Key), k?.note].filter(Boolean).join(": ") }; }
       if (x.session_id) { const s = sessions.find((y) => y.id === x.session_id); return { ...base, session_id: x.session_id, program_id: s?.program_id, program_kind: s?.kind ?? null, label: s?.name ?? "" }; }
-      // A Playtomic copy: its kind, and who booked it and plays in it (from the club's archive) for those who read people.
-      const pt = names.get(x.id);
-      return { ...base, label: `Playtomic: ${t(l, typeKey(mirror.find((m) => m.court_time_id === x.id)?.booking_type))}`, ...(pt ? { who: pt.who ?? "", players: pt.players } : {}) };
+      // A Playtomic copy: its type in Playtomic (the grid colours it by that, with a mark saying where it came from), and
+      // who booked it and plays in it (from the club's archive) for those who read people, with a player's level and
+      // plan here when the archive matched them to someone; its price and payment as Playtomic gave them, for money readers.
+      const pt = names.get(x.id), m = mirror.find((y) => y.court_time_id === x.id), paid = ptMoney.find((y) => y.ref === m?.ref);
+      return { ...base, pt_type: m?.booking_type ?? null, label: t(l, typeKey(m?.booking_type)),
+        ...(pt ? { who: pt.who ?? "", players: pt.roster.map((r) => r.name), roster: pt.roster.map((r) => ({ name: r.name, ...about(r.person_id, true) })) } : {}),
+        ...(money && paid ? { pt_price_cents: paid.price_cents, pt_payment: paid.payment_status } : {}) };
     }) })) });
   });
 
   /** Who booked each Playtomic copy and who plays in it, from the club's archive (playtomic_archive.ts), by the copy's court
    *  time. Only for those who read people (see `seesPeople`). A member whose account was deleted here never shows: their
    *  rows have no name (erased_at, playtomic_erased.ts), and a row matched to a deleted account is left out as well. */
+  type PlaytomicNames = { who: string | null; roster: { name: string; person_id: string | null }[] };
   const playtomicNames = async (courtTimeIds: string[]) => {
-    const out = new Map<string, { who: string | null; players: string[] }>();
+    const out = new Map<string, PlaytomicNames>();
     if (!courtTimeIds.length) return out;
     const rows = await db.selectFrom("mirror_booking")
       .innerJoin("playtomic_booking", (j) => j.on(sql<boolean>`mirror_booking.ref = playtomic_booking.booking_id || ':' || playtomic_booking.resource_id`))
       .innerJoin("playtomic_booking_player", "playtomic_booking_player.booking_id", "playtomic_booking.booking_id")
       .leftJoin("person", "person.id", "playtomic_booking_player.person_id")
-      .select(["mirror_booking.court_time_id", "playtomic_booking_player.name", "playtomic_booking_player.is_owner", "playtomic_booking_player.participant_id",
+      .select(["mirror_booking.court_time_id", "playtomic_booking_player.name", "playtomic_booking_player.person_id", "playtomic_booking_player.is_owner", "playtomic_booking_player.participant_id",
         "playtomic_booking_player.family_member_id", "playtomic_booking.owner_id"])
       .where("mirror_booking.court_time_id", "in", courtTimeIds).where("playtomic_booking_player.erased_at", "is", null)
       .where("playtomic_booking_player.name", "is not", null).where("person.redacted_at", "is", null)
       .orderBy("playtomic_booking_player.is_owner", "desc").orderBy("playtomic_booking_player.id").execute();
     for (const r of rows) {
-      const e = out.get(r.court_time_id!) ?? { who: null, players: [] };
+      const e = out.get(r.court_time_id!) ?? { who: null, roster: [] };
       const owner = r.is_owner || (r.owner_id && r.participant_id === r.owner_id && !r.family_member_id);
       if (owner && !e.who) e.who = r.name!;
-      e.players.push(r.name!);
+      e.roster.push({ name: r.name!, person_id: r.person_id });
       out.set(r.court_time_id!, e);
     }
     return out;
@@ -618,11 +645,11 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const copies = await db.selectFrom("court_time").innerJoin("mirror_booking", "mirror_booking.court_time_id", "court_time.id")
       .select(["court_time.id", "court_time.court_id", "mirror_booking.booking_type", sql<Date>`lower(court_time.during)`.as("s"), sql<Date>`upper(court_time.during)`.as("e")])
       .where("court_time.kind", "=", "mirror").where("court_time.active", "=", true).where("court_time.court_id", "in", courtIds).where(inRange).execute();
-    const names = people ? await playtomicNames(copies.map((x) => x.id)) : new Map<string, { who: string | null; players: string[] }>();
+    const names = people ? await playtomicNames(copies.map((x) => x.id)) : new Map<string, PlaytomicNames>();
     for (const m of copies) {
       const s = new Date(m.s), e = new Date(m.e), n = names.get(m.id);
       rows.push({ key: `${m.court_id}|${s.toISOString()}`, starts_at: s, ends_at: e, court_id: m.court_id, court: courts.get(m.court_id) ?? "", type: "playtomic", made_in: "playtomic",
-        status: state(s, e, false), who: n?.who ?? null, more: n ? Math.max(0, n.players.length - (n.who ? 1 : 0)) : 0, label: t(l, typeKey(m.booking_type)) });
+        status: state(s, e, false), who: n?.who ?? null, more: n ? Math.max(0, n.roster.length - (n.who ? 1 : 0)) : 0, label: t(l, typeKey(m.booking_type)) });
     }
     const shown = rows.filter((r) => (!type || r.type === type) && (!madeIn || r.made_in === madeIn) && (!status || (status === "unpaid" ? (r.owed_cents ?? 0) > 0 : r.status === status)))
       .sort((a, b) => a.starts_at.getTime() - b.starts_at.getTime() || a.court.localeCompare(b.court));

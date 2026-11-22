@@ -7,6 +7,23 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+### Changed
+- **The Schedule's blocks have a card.** Resting the mouse on a block for a moment, or reaching it with the keyboard,
+  shows a card beside it: what it is (booked, an open match, a lesson with its coach, a program's name, or blocked and
+  why), its court and times, and a row for each player with their level and membership plan here when they have one,
+  guests by name and open places as open. Those who see money also see what each place has paid, with a mark for paid
+  or what's still owed. A Playtomic copy lists its players from the club's archive (a level and plan only for someone
+  matched to an account here) and its price and payment as Playtomic gave them. The card shows only what the grid
+  already shows each person: no names for a role without them, no money for one without it, and a coach sees someone
+  else's booking as "Booked" and nothing more. It never opens from a finger: a tap opens the side panel as before. The
+  week view's items have it too.
+- **Playtomic copies are coloured as what they are**: a booking as a booking, an open match or open play as an open
+  match, a class or course as a lesson, a tournament or league match as an event, with a small "imported" mark in the
+  corner saying it came from Playtomic (a plain arrow, not Playtomic's logo). The legend shows the mark, instead of a
+  Playtomic colour, on days with copies. The day's occupancy and bookings count them as before.
+
 ## 0.8.1 (2026-11-21)
 
 openPadel's plugin catalog is published, and a club's server reads it.

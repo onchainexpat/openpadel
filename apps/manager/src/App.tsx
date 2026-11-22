@@ -2,7 +2,7 @@ import { ErrorBoundary, LocationProvider, Router, Route, useLocation } from "pre
 import { useEffect, useState } from "preact/hooks";
 import { api, AskChat, NotFound, Skeleton, club, Icon, type IconName, mayCreate, signOutHere, Inbox, InboxLink, lang, lazyPage, loadMe, loadUnread, Greeting, me, Notices, t, type Club, type Me, SignIn, ProfilePage as Profile, TwoFactor, clubTime, applyBrand, applyTitle, useBackCloses, mayDo } from "@kumi/ui";
 import { Schedule } from "./Schedule.tsx";
-import { Courts, NewBooking, SessionPanel } from "./Courts.tsx";
+import { Courts, HoverCard, NewBooking, SessionPanel } from "./Courts.tsx";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 import { formatLocale } from "@kumi/i18n/format";
 import { homeFor, type MenuItem } from "./presets.ts";
@@ -89,7 +89,7 @@ function access(m: Me) {
   const later: { preload?: () => unknown }[] = [home, Profile];
   const add = (yes: boolean, ...pages: { preload?: () => unknown }[]) => { if (yes) later.push(...pages); };
   add(!coachOnly, Today, Approvals);
-  add(show("bookings"), Bookings, NewBooking, SessionPanel);
+  add(show("bookings"), Bookings, NewBooking, SessionPanel, HoverCard);
   add(show("programs"), Programs, Program, Night);
   add(show("members") || coachSide, People, Person);
   add(show("memberships"), Memberships);

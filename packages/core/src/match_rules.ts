@@ -7,6 +7,12 @@ export async function levelOf(db: Db | Trx, personId: string): Promise<number | 
   const r = await db.selectFrom("rating").select("level").where("person_id", "=", personId).where("sport", "=", "padel").executeTakeFirst();
   return r ? Number(r.level) : null;
 }
+/** Each of these people's shown level, as levelOf gives it; someone with none yet isn't in the map. */
+export async function levelsOf(db: Db | Trx, personIds: string[]): Promise<Map<string, number>> {
+  if (!personIds.length) return new Map();
+  const rows = await db.selectFrom("rating").select(["person_id", "level"]).where("person_id", "in", personIds).where("sport", "=", "padel").execute();
+  return new Map(rows.map((r) => [r.person_id, Number(r.level)]));
+}
 
 export async function openMatchOf(db: Db | Trx, bookingId: string) {
   return (await db.selectFrom("open_match").selectAll().where("booking_id", "=", bookingId).executeTakeFirst()) ?? null;

@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { dayStats, kindOf } from "../src/day_stats.ts";
+import { placeCard } from "../src/card_place.ts";
 
 const src = (f: string) => readFileSync(join(import.meta.dirname, "../src", f), "utf8");
 
@@ -69,7 +70,10 @@ test("each thing on the grid has its kind: lessons, clinics and courses for lear
   assert.equal(kindOf({ start: at("10:00"), end: at("11:00"), kind: "session", program_kind: "course" }), "learning");
   assert.equal(kindOf({ start: at("10:00"), end: at("11:00"), kind: "session", program_kind: "league" }), "event");
   assert.equal(kindOf({ start: at("10:00"), end: at("11:00"), kind: "block" }), "blocked");
-  assert.equal(kindOf({ start: at("10:00"), end: at("11:00"), kind: "mirror" }), "playtomic");
+  // A Playtomic copy: coloured as what it is in Playtomic (and marked as imported); an unknown type, or none, is a booking.
+  const pt = (pt_type: string | null) => kindOf({ start: at("10:00"), end: at("11:00"), kind: "mirror", pt_type });
+  assert.deepEqual(["REGULAR_BOOKING", "RECURRING_BOOKING", "OPEN_MATCH", "OPEN_PLAY", "PRIVATE_CLASS", "COURSE_CLASS", "PUBLIC_CLASS", "TOURNAMENT", "LEAGUE_MATCH", "SOMETHING_NEW", null].map(pt),
+    ["booking", "booking", "open_match", "open_match", "learning", "learning", "learning", "event", "event", "booking", "booking"]);
   assert.equal(kindOf({ start: at("10:00"), end: at("11:00"), kind: "hold" }), "hold");
   // A coach's view of someone else's booking: only "booked", still a court booking.
   assert.equal(kindOf({ start: at("10:00"), end: at("11:00"), kind: "booking" }), "booking");
@@ -83,12 +87,44 @@ test("the day's occupancy counts court time inside each court's hours, less what
       { start: at("10:00"), end: at("12:00"), kind: "session" },
       { start: at("12:00"), end: at("13:00"), kind: "hold", booking_id: "h1" },     // still being paid for: not yet
       { start: at("16:00"), end: at("18:00"), kind: "block" }] },
-    { id: "c2", open, items: [{ start: at("09:00"), end: at("10:00"), kind: "mirror" }, { start: at("11:00"), end: at("12:00"), kind: "booking" }] },
+    { id: "c2", open, items: [{ start: at("09:00"), end: at("10:00"), kind: "mirror", pt_type: "OPEN_MATCH" }, { start: at("11:00"), end: at("12:00"), kind: "booking" }] },
     { id: "c3", open: null, items: [] },
   ]);
   // Used 1 + 2 + 1 + 1 = 5 hours, of 20 open less 2 blocked = 18.
   assert.deepEqual(s, { percent: 28, bookings: 3 });
   assert.deepEqual(dayStats([]), { percent: 0, bookings: 0 });
+});
+
+test("the hover card goes beside its block, inside the window: right or left, and up when it would run off the bottom", () => {
+  const box = { left: 100, right: 200, top: 100, bottom: 160 };
+  assert.deepEqual(placeCard(box, 260, 200, 1280, 800), { left: 208, top: 100 });
+  assert.deepEqual(placeCard({ ...box, left: 1000, right: 1100 }, 260, 200, 1280, 800), { left: 732, top: 100 }, "no room on the right: on the left");
+  assert.deepEqual(placeCard({ ...box, top: 700, bottom: 760 }, 260, 200, 1280, 800), { left: 208, top: 560 }, "would run off the bottom: up");
+  assert.deepEqual(placeCard({ left: 10, right: 380, top: 0, bottom: 40 }, 300, 900, 390, 700), { left: 8, top: 8 }, "a phone: kept inside");
+});
+
+test("the hover card: hover or keyboard focus, never a finger; described-by its block; gone on leave, blur, Escape or a drag", () => {
+  const c = src("Courts.tsx"), card = src("HoverCard.tsx");
+  assert.match(c, /if \(e\.pointerType === "mouse" && !e\.buttons\) show\(\{ key, it, court, anchor: e\.currentTarget as HTMLElement \}, 150\)/);
+  assert.match(c, /if \(el\.matches\(":focus-visible"\)\) show\(\{ key, it, court, anchor: el \}, 0\)/);
+  assert.match(c, /onPointerLeave: hide, onPointerDown: hide, onBlur: hide/);
+  assert.match(c, /"aria-describedby": tip\?\.key === key \? CARD_ID : undefined/);
+  assert.match(card, /if \(e\.key === "Escape"\) onClose\(\)/);
+  assert.match(c, /\{\.\.\.\(drag \? \{\} : hover\.on\(k, it, c\.name\)\)\}/, "not while dragging");
+  assert.match(card, /role="tooltip"/);
+  // What it shows is what the grid sent: it reads nothing of its own.
+  assert.doesNotMatch(card, /api[<(]/);
+  assert.match(src("App.tsx"), /add\(show\("bookings"\), Bookings, NewBooking, SessionPanel, HoverCard\);/, "loaded with the day's later parts, not the first screen");
+  assert.match(c, /export const HoverCard = lazyPage\(\(\) => import\("\.\/HoverCard\.tsx"\)/);
+});
+
+test("a Playtomic copy is marked as imported, never with Playtomic's logo; the legend shows the mark only on a day with copies", () => {
+  const c = src("Courts.tsx"), mark = src("ImportedMark.tsx");
+  assert.match(mark, /<Icon name="import" label=\{t\("ui\.imported_playtomic"\)\} \/>/);
+  assert.match(mark, /title=\{t\("ui\.imported_playtomic"\)\}/);
+  assert.match(c, /\{it\.kind === "mirror" && <ImportedMark class="tg-mark" \/>\}/);
+  assert.match(c, /const playtomic = g\.courts\.some\(\(c\) => c\.items\.some\(\(it\) => it\.kind === "mirror"\)\);/);
+  assert.doesNotMatch(c, /"playtomic" as const/, "no Playtomic colour in the legend");
 });
 
 test("a person's page in tabs keeps each section's check: money, levels and Playtomic tabs only for whoever has them", () => {

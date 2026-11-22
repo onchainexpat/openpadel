@@ -13,6 +13,7 @@ import { playtomicParts } from "./paid_line.ts";
 import { dayStats, kindOf, type Kind } from "./day_stats.ts";
 import { NARROW, useDrawer, useMedia } from "./drawer.ts";
 import { label } from "./words.ts";
+import { ImportedMark } from "./ImportedMark.tsx";
 
 // The desk's payment form comes when someone taps Record payment, so the first screen doesn't carry it.
 const DeskPay = lazyPage(() => import("./DeskPay.tsx").then((m) => m.DeskPay));
@@ -24,17 +25,26 @@ const CreatePanel = lazyPage(() => import("./CreatePanel.tsx").then((m) => m.Cre
 const DeskLesson = lazyPage(() => import("./DeskCreate.tsx").then((m) => m.DeskLesson));
 const DeskMatch = lazyPage(() => import("./DeskCreate.tsx").then((m) => m.DeskMatch));
 const MonthView = lazyPage(() => import("./Month.tsx").then((m) => m.MonthView));
+// The card shown while the mouse rests on a block (or the keyboard is on it): loaded with the day's later parts.
+export const HoverCard = lazyPage(() => import("./HoverCard.tsx").then((m) => m.HoverCard));
 
 type Empty = { id: string; name: string; open: boolean };
 type Late = { name: string; minutes: number; at: string };
 type Seat = { id: string; name: string; booker: boolean };
-/** Each place still in a booking, and whether its player is checked in at the desk (booking.check_in). */
-type Arrival = { id: string; name: string; guest: boolean; in: boolean };
-/** `who` and `players` on a Playtomic copy: who booked it and plays in it, from the club's archive, only for staff who
- *  read people (never a coach on their own, never a member whose account was deleted here). */
+/** Each place still in a booking, and whether its player is checked in at the desk (booking.check_in); for the hover
+ *  card, their level and membership plan here when they have one (with the names), and what the place has paid and
+ *  still owes (for money readers). */
+type Arrival = { id: string; name: string; guest: boolean; in: boolean; level?: number; plan?: string; paid_cents?: number; owed_cents?: number };
+/** A Playtomic copy's player, from the club's archive: their level and plan here when the archive matched them to someone. */
+type RosterRow = { name: string; level?: number; plan?: string };
+/** `who`, `players` and `roster` on a Playtomic copy: who booked it and plays in it, from the club's archive, only for
+ *  staff who read people (never a coach on their own, never a member whose account was deleted here). `pt_type`: its
+ *  type in Playtomic, which colours it (kindOf); `pt_price_cents` and `pt_payment`: its price and payment as Playtomic
+ *  gave them, for money readers. `places`: a booking's places, when more than the players in it. */
 export type Item = { start: string; end: string; kind: string; booking_id?: string; code?: string; who?: string; price_cents?: number; paid_cents?: number; off_cents?: number; pt_cents?: number; balance_cents?: number; booking_kind?: string;
   open_match?: boolean; coach?: string | null; status?: string; players?: string[]; late?: Late[]; whole?: boolean; invite_code?: string | null; seats?: Seat[]; block_id?: string; series?: boolean; session_id?: string;
-  program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[]; note?: string; player_note?: string; split?: boolean; arrivals?: Arrival[] };
+  program_id?: string; program_kind?: string | null; label?: string; empty_places?: Empty[]; note?: string; player_note?: string; split?: boolean; arrivals?: Arrival[]; places?: number;
+  pt_type?: string | null; roster?: RosterRow[]; pt_price_cents?: number | null; pt_payment?: string | null };
 // `open`: that court's own hours that day (they can differ from the location's); null when it's closed all day.
 export type Court = { id: string; name: string; kind: string; open: { opens: string; closes: string } | null; items: Item[] };
 /** `money` false: a reader who doesn't see what members paid (a coach on their own lesson, a role the club made covering
@@ -164,7 +174,7 @@ export function Courts() {
   const go = (f: () => void) => () => { setCreating(false); closePanel(); setView("day"); f(); };
   const choices = createChoices(Boolean(g.open), (once) => go(() => setChoosing(once ? "once" : "weekly"))(), go(() => setBlocking(true)),
     go(() => setLesson(true)), go(() => setChoosing("match")));
-  const playtomic = Boolean(me.value?.playtomic) || g.courts.some((c) => c.items.some((it) => it.kind === "mirror"));
+  const playtomic = g.courts.some((c) => c.items.some((it) => it.kind === "mirror"));
 
   return (
     <main class="wide today">
@@ -264,11 +274,12 @@ export function SidePanel({ narrow, onClose, children }: { narrow: boolean; onCl
   </>;
 }
 
-/** The legend: what each colour on the grid is, in words. */
+/** The legend: what each colour on the grid is, in words; and, on a day with Playtomic copies, their mark. */
 const kindWords = (k: Kind) => t(`ui.kind_${k}` as Key);
 function Legend({ playtomic }: { playtomic: boolean }) {
-  const kinds: Kind[] = ["booking", "open_match", "learning", "event", "blocked", ...(playtomic ? ["playtomic" as const] : [])];
-  return <ul class="legend" aria-label={t("ui.legend")}>{kinds.map((k) => <li><span class={`swatch k-${k}`} aria-hidden="true" />{kindWords(k)}</li>)}</ul>;
+  const kinds: Kind[] = ["booking", "open_match", "learning", "event", "blocked"];
+  return <ul class="legend" aria-label={t("ui.legend")}>{kinds.map((k) => <li><span class={`swatch k-${k}`} aria-hidden="true" />{kindWords(k)}</li>)}
+    {playtomic && <li><span class="pt-mark" aria-hidden="true"><Icon name="import" /></span>{t("ui.imported_playtomic")}</li>}</ul>;
 }
 
 /** Making a booking from + Create: each court's free time that day, to choose from. */
@@ -308,7 +319,8 @@ function AlertList({ a, clock, preview }: { a: Alerts; clock: (s: string) => str
 }
 
 /** Who and what an item is, in a few words: the organiser (and coach), a program's or a block's name, and who booked a
- *  Playtomic copy when the server says (only to those who read people). */
+ *  Playtomic copy when the server says (only to those who read people) with its type in Playtomic (its mark says where
+ *  it came from). */
 const labelOf = (it: Item) => it.booking_id ? (it.kind === "hold" ? t("ui.being_paid") : [it.who, it.booking_kind === "lesson" && it.coach ? t("ui.lesson_with", { coach: it.coach }) : ""].filter(Boolean).join(" · "))
   : [it.kind === "mirror" ? it.who ?? "" : "", it.label ?? "", it.series ? t("ui.repeats_weekly") : ""].filter(Boolean).join(" · ");
 /** A clock time in the location's time zone, as a club writes it: "18:00", and "24:00" for midnight at the end of the day. */
@@ -319,11 +331,10 @@ const clubTime = (iso: string, tz: string, end = false) => {
 /** The kind of anything but a plain court booking, in words on the block, so colour is never the only sign. */
 const tagOf = (it: Item) => {
   const k = kindOf(it);
-  if (k === "booking" || k === "hold") return "";
+  if (k === "booking" || k === "hold" || it.kind === "mirror") return "";   // a Playtomic copy's label says its type
   if (it.kind === "session") return it.program_kind ? t(`kind.${it.program_kind}` as Key) : "";
   if (k === "learning") return t("ui.kind_lesson");
   if (k === "open_match") return t("ui.kind_open_match");
-  if (k === "playtomic") return "";   // its label already says Playtomic
   return t("ui.kind_blocked");
 };
 const dayName = (w: number) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", timeZone: "UTC" }).format(new Date(Date.UTC(2026, 0, 4 + w)));
@@ -357,12 +368,33 @@ function NowNext({ g, clock }: { g: Grid; clock: (s: string) => string }) {
   );
 }
 
+/** The hover card's state: which block it's for, shown after the mouse rests on a block for a moment or as soon as the
+ *  keyboard lands on one; never from a finger (a tap opens the side panel, as before). Gone when the mouse leaves, the
+ *  focus moves or a drag starts; the card itself (HoverCard.tsx) goes on Escape, a scroll or a resize. */
+const CARD_ID = "tg-card";
+type Tip = { key: string; it: Item; court: string; anchor: HTMLElement };
+function useHoverCard(clock: (s: string | number) => string, money: boolean) {
+  const [tip, setTip] = useState<Tip | null>(null), want = useRef<string | null>(null), timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hide = () => { clearTimeout(timer.current); want.current = null; setTip(null); };
+  const show = (x: Tip, wait: number) => { clearTimeout(timer.current); want.current = x.key;
+    timer.current = setTimeout(() => HoverCard.preload!().then(() => { if (want.current === x.key) setTip(x); }, hide), wait); };
+  /** What a block's button takes: the hover and focus that show the card, and aria-describedby while it's shown. */
+  const on = (key: string, it: Item, court: string) => ({
+    onPointerEnter: (e: PointerEvent) => { if (e.pointerType === "mouse" && !e.buttons) show({ key, it, court, anchor: e.currentTarget as HTMLElement }, 150); },
+    onPointerLeave: hide, onPointerDown: hide, onBlur: hide,
+    onFocus: (e: FocusEvent) => { const el = e.currentTarget as HTMLElement; if (el.matches(":focus-visible")) show({ key, it, court, anchor: el }, 0); },
+    "aria-describedby": tip?.key === key ? CARD_ID : undefined,
+  });
+  return { on, hide, card: tip && <HoverCard id={CARD_ID} it={tip.it} court={tip.court} clock={clock} money={money} anchor={tip.anchor} onClose={hide} /> };
+}
+
 /** The day as a grid: courts across, time down. Each booking can be dragged by its handle to another time or
  *  court, or by its bottom edge to another length; arrow keys do the same on the one picked. */
 function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, onDrop, onFree }: { g: Grid; clock: (s: string | number) => string; picked: string | null;
   onPick: (k: string) => void; canMove: (it: Item) => boolean; canResize: (it: Item) => boolean; courtFixed: (it: Item) => boolean; onDrop: (it: Item, from: Court, to: Target) => void;
   onFree: (c: Court, at: number) => void }) {
   const cols = useRef<(HTMLDivElement | null)[]>([]);
+  const hover = useHoverCard(clock, g.money !== false);
   const [drag, setDrag] = useState<{ it: Item; from: Court; mode: "move" | "resize"; y0: number; orig: Target; to: Target; pointer: boolean } | null>(null);
   // The hours shown: opening to closing, stretched to anything outside them that day.
   const all = g.courts.flatMap((c) => c.items);
@@ -437,13 +469,15 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
               const kind = kindOf(it), tag = tagOf(it);
               return (
                 <div class={`tg-item k-${kind}${picked === k ? " sel" : ""}${drag?.it === it ? " dragging" : ""}`} style={`top:${top}px;height:${h}px`}>
-                  <button type="button" class="tg-face" aria-pressed={picked === k} onClick={() => onPick(k)} onKeyDown={(e) => keys(e, it, c)}>
+                  <button type="button" class="tg-face" aria-pressed={picked === k} onClick={() => onPick(k)} {...(drag ? {} : hover.on(k, it, c.name))}
+                    onKeyDown={(e) => { if (e.key !== "Shift" && e.key !== "Tab") hover.hide(); keys(e, it, c); }}>
                     <span class="tg-time">{clock(it.start)} - {clock(it.end)}</span>
                     <span class="tg-who">{labelOf(it)}</span>
                     {tag && <span class="tg-kind">{tag}</span>}
                     {/* Owed money is for those who see what members paid (the server sends none to anyone else). */}
                     {g.money !== false && isBooking(it) && unpaid(it) > 0 && <span class="pill-unpaid">{t("ui.unpaid_pill")} · {dollars(unpaid(it), lang.value)}</span>}
                     {(it.late?.length ?? 0) > 0 && <span class="badge">{t("ui.late_note", { name: it.late![0]!.name || t("ui.player"), minutes: it.late![0]!.minutes })}</span>}
+                    {it.kind === "mirror" && <ImportedMark class="tg-mark" />}
                   </button>
                   {canMove(it) && <span class="tg-grip" aria-hidden="true" title={t("ui.drag_handle")} onPointerDown={(e) => begin(e, it, c, "move")} onPointerMove={follow} onPointerUp={finish} onPointerCancel={() => setDrag(null)}>⠿</span>}
                   {canResize(it) && <span class="tg-resize" aria-hidden="true" onPointerDown={(e) => begin(e, it, c, "resize")} onPointerMove={follow} onPointerUp={finish} onPointerCancel={() => setDrag(null)} />}
@@ -455,6 +489,7 @@ function TimeGrid({ g, clock, picked, onPick, canMove, canResize, courtFixed, on
           </div>
         </div>
       ))}
+      {hover.card}
     </div>
   );
 }
@@ -477,6 +512,8 @@ function WeekView({ loc, date, courts, clock, stamp, onDay }: { loc: string; dat
     return () => { live = false; };
   }, [loc, days[0], stamp]);
   const head = (day: string) => new Intl.DateTimeFormat(formatLocale(lang.value), { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${day}T12:00:00Z`));
+  // Each day is read with the same reader's rules: the card sees money when the days do.
+  const hover = useHoverCard(clock, Object.values(grids).every((x) => x?.money !== false));
   return (
     <div class="table-scroll table-box week">
       <table class="data week-grid">
@@ -487,11 +524,13 @@ function WeekView({ loc, date, courts, clock, stamp, onDay }: { loc: string; dat
           {days.map((day) => { const g = grids[day], ct = g?.courts.find((x) => x.id === c.id);
             return <td>{g === undefined ? <Skeleton shape="line" /> : !ct ? null : !ct.open && !ct.items.length ? <span class="meta">{t("ui.closed")}</span>
               : <ul class="plain week-items">{ct.items.filter((it) => it.kind !== "hold").map((it) => { const k = kindOf(it), tag = tagOf(it);
-                return <li><button type="button" class={`week-item k-${k}`} onClick={() => onDay(day, keyOf(it, c.id))}>
+                return <li><button type="button" class={`week-item k-${k}`} onClick={() => onDay(day, keyOf(it, c.id))} {...hover.on(`${day}|${keyOf(it, c.id)}`, it, c.name)}>
                   <span class="tg-time">{clock(it.start)} - {clock(it.end)}</span> <span>{labelOf(it) || tag || kindWords(k)}</span>
-                  {g!.money !== false && isBooking(it) && unpaid(it) > 0 && <span class="pill-unpaid">{t("ui.unpaid_pill")}</span>}</button></li>; })}</ul>}</td>; })}
+                  {g!.money !== false && isBooking(it) && unpaid(it) > 0 && <span class="pill-unpaid">{t("ui.unpaid_pill")}</span>}
+                  {it.kind === "mirror" && <ImportedMark class="week-mark" />}</button></li>; })}</ul>}</td>; })}
         </tr>)}</tbody>
       </table>
+      {hover.card}
     </div>
   );
 }

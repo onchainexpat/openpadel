@@ -142,15 +142,15 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
 /* Each kind on the Schedule: its own fill (lighter to darker, so they differ without colour), an edge and its name in
    words in a darker shade of it (4.5:1 or more on the fill), and the legend saying which is which. */
 :root { --k-booking: #f6f7f2; --k-booking-ink: #5f6b67; --k-open: #b2cff1; --k-open-ink: #0052a8; --k-learning: #f9d7b0; --k-learning-ink: #8b5100;
-  --k-event: #c2b5e4; --k-event-ink: #3a34b3; --k-playtomic: #d5eee4; --k-playtomic-ink: #22725b; --k-blocked-ink: #5f6b67; --unpaid: #a4262c; }
+  --k-event: #c2b5e4; --k-event-ink: #3a34b3; --k-blocked-ink: #5f6b67; --unpaid: #a4262c; }
 @media (prefers-color-scheme: dark) { :root { --k-booking: #2a2d2b; --k-booking-ink: #a9b2ad; --k-open: #32506d; --k-open-ink: #9fdcff; --k-learning: #533e27; --k-learning-ink: #f0bd7e;
-  --k-event: #5c547a; --k-event-ink: #ece0ff; --k-playtomic: #2a3a35; --k-playtomic-ink: #8fc3b3; --k-blocked-ink: #a9b2ad; --unpaid: #c4363d; } }
+  --k-event: #5c547a; --k-event-ink: #ece0ff; --k-blocked-ink: #a9b2ad; --unpaid: #c4363d; } }
 .k-booking, .k-hold { --k-fill: var(--k-booking); --k-ink: var(--k-booking-ink); } .k-open_match { --k-fill: var(--k-open); --k-ink: var(--k-open-ink); }
 .k-learning { --k-fill: var(--k-learning); --k-ink: var(--k-learning-ink); } .k-event { --k-fill: var(--k-event); --k-ink: var(--k-event-ink); }
-.k-playtomic { --k-fill: var(--k-playtomic); --k-ink: var(--k-playtomic-ink); } .k-blocked { --k-fill: var(--bg); --k-ink: var(--k-blocked-ink); }
+.k-blocked { --k-fill: var(--bg); --k-ink: var(--k-blocked-ink); }
 .tg-item .tg-face { background: var(--k-fill); border-color: color-mix(in srgb, var(--k-ink) 35%, transparent); border-left-color: var(--k-ink); }
 .k-blocked .tg-face, .swatch.k-blocked { background: repeating-linear-gradient(135deg, var(--bg) 0 6px, var(--line) 6px 9px); }
-.k-playtomic .tg-face { border-style: dashed; border-left-style: solid; } .k-hold .tg-face { border-left-style: dotted; }
+.k-hold .tg-face { border-left-style: dotted; }
 .tg-kind { display: block; font-size: 12px; font-weight: 600; color: var(--k-ink); } .tg-kind::first-letter { text-transform: uppercase; }
 .pill-unpaid { display: inline-block; padding: 0 8px; border-radius: 999px; background: var(--unpaid); color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .kind-tag { display: inline-block; margin-bottom: 6px; padding: 2px 10px; border-radius: 999px; background: var(--k-fill); color: var(--k-ink); border: 1px solid var(--k-ink); font-size: 13px; font-weight: 600; }
@@ -159,7 +159,29 @@ body:has(main.today) .dock:not(:empty) { max-width: 1200px; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; margin: 0 0 8px; padding: 0; font-size: 13px; color: var(--ink); }
 .legend li { display: flex; align-items: center; gap: 6px; }
 .swatch { width: 16px; height: 16px; border-radius: 4px; background: var(--k-fill); border: 1px solid var(--k-ink); border-left-width: 4px; flex: none; }
-.k-playtomic.swatch { border-style: dashed; border-left-style: solid; }
+/* A Playtomic copy's mark (ImportedMark.tsx): in the corner of its block, beside its words in the legend and the card. */
+.pt-mark { display: inline-flex; flex: none; font-size: 14px; color: var(--k-ink, var(--muted)); }
+.tg-mark { position: absolute; right: 5px; bottom: 4px; }
+.week-mark { margin-left: 4px; vertical-align: -2px; }
+/* The hover card (HoverCard.tsx): beside the block, over the page, never in the pointer's way. */
+.hover-card { position: fixed; z-index: 50; width: max-content; min-width: 240px; max-width: min(340px, calc(100vw - 16px)); padding: 10px 0 6px; font-size: 14px; line-height: 1.3;
+  color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .2); pointer-events: none; animation: hc-in 120ms ease-out; }
+@keyframes hc-in { from { opacity: 0; transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .hover-card { animation: none; } }
+.hc-head { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 14px 8px; text-align: center; }
+.hc-imported { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.hc-rows { list-style: none; margin: 0; padding: 4px 0 0; border-top: 1px solid var(--line); }
+.hc-rows li { display: flex; align-items: center; gap: 10px; padding: 5px 14px; }
+.hc-avatar { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--muted); font-size: 12px; font-weight: 700; }
+.hc-open .hc-avatar { border-style: dashed; }
+.hc-who { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.hc-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-weight: 600; } .hc-name > * { flex: none; }
+.hc-name > .hc-n { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hc-level { padding: 0 6px; border-radius: 999px; background: var(--k-open); color: var(--k-open-ink); font-size: 12px; font-weight: 700; }
+.hc-plan { font-size: 12px; color: var(--k-learning-ink); }
+.hc-money { flex: none; display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.hc-paid { display: inline-flex; color: var(--brand-ink); font-size: 16px; } .hc-owes { color: var(--error); font-size: 12px; font-weight: 700; }
+.hc-foot { margin: 6px 14px 0; }
 .tg-item.sel .tg-face { outline: 2px solid var(--brand-ink); outline-offset: 1px; }
 .tg-item.dragging { opacity: .45; }
 /* The handles take a finger without scrolling the page: the grip moves, the bottom edge changes the length. */

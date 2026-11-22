@@ -11,7 +11,7 @@ import { both, money, type Key, type Lang, type Text, formatLocale } from "@kumi
 import { defineAction, readRow, runAsSystem, type ApplyCtx } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
-import { mergeTranslations, textOf, translationsInput } from "./club_text.ts";
+import { mergeTranslations, textOf, translationsInput, trSql } from "./club_text.ts";
 import { uuidv7 } from "./ids.ts";
 import { atLocal, localDate, localParts, onDate } from "./clock.ts";
 import { account, paymentProvider, post } from "./money.ts";
@@ -55,24 +55,39 @@ export function dayText(date: string): Text {
   return { en: f("en"), es: f("es") };
 }
 
-/** The plan whose benefits a person has at `at`: an active membership that hasn't run out, or one whose
- *  renewal payment is late (it carries on while Kumi tries the card again). */
+/** Memberships whose benefits are on at `at`: active and not run out, or a renewal payment late (it carries on while
+ *  Kumi tries the card again), not paused; or a founding member's before the plan starts, card saved (or nothing to
+ *  pay), when the plan gives its prices and discounts already (programPerks keeps included sessions for once it's
+ *  started). */
+const livePlans = (db: Db | Trx, at: Date) => db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+  .where((eb) => eb.or([eb("membership.paused_until", "is", null), eb("membership.paused_until", "<=", at), eb("membership.paused_from", ">", at)]))
+  .where((eb) => eb.or([eb("membership.status", "=", "past_due"),
+    eb.and([eb("membership.status", "=", "active"), eb.or([eb("membership.current_period_end", "is", null), eb("membership.current_period_end", ">", at)])]),
+    eb.and([eb("membership.status", "=", "upcoming"), eb("membership_plan.perks_before_start", "=", true),
+      eb.or([eb("membership.saved_method", "is not", null), eb("membership.price_cents", "=", 0)])])]));
+
+/** The plan whose benefits a person has at `at` (livePlans): theirs, or a family plan that covers them (until they're
+ *  taken off it). */
 export async function memberPlan(db: Db | Trx, personId: string, at = new Date()) {
-  return (await db.selectFrom("membership").innerJoin("membership_plan", "membership_plan.id", "membership.plan_id")
+  return (await livePlans(db, at)
     .select(["membership.id as membership_id", "membership_plan.id as plan_id", "membership_plan.name", "membership_plan.days_ahead"])
-    // Theirs, or a family plan that covers them (until they're taken off it).
     .where((eb) => eb.or([eb("membership.person_id", "=", personId), eb.exists(eb.selectFrom("membership_member").select("membership_member.id")
       .whereRef("membership_member.membership_id", "=", "membership.id").where("membership_member.person_id", "=", personId)
       .where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", at)])))]))
-    // Paused: no benefits until it's over.
-    .where((eb) => eb.or([eb("membership.paused_until", "is", null), eb("membership.paused_until", "<=", at), eb("membership.paused_from", ">", at)]))
-    .where((eb) => eb.or([eb("membership.status", "=", "past_due"),
-      eb.and([eb("membership.status", "=", "active"), eb.or([eb("membership.current_period_end", "is", null), eb("membership.current_period_end", ">", at)])]),
-      // A founding member before the plan starts, card saved (or nothing to pay): its prices and discounts already,
-      // when the plan says so (programPerks keeps included sessions for once it's started).
-      eb.and([eb("membership.status", "=", "upcoming"), eb("membership_plan.perks_before_start", "=", true),
-        eb.or([eb("membership.saved_method", "is not", null), eb("membership.price_cents", "=", 0)])])]))
     .executeTakeFirst()) ?? null;
+}
+
+/** Each of these people's plan name at `at`, in the reader's language, by the same rule as memberPlan (their own plan
+ *  first, then a family plan that covers them). Someone without one isn't in the map. */
+export async function planNamesOf(db: Db | Trx, personIds: string[], lang: Lang, at = new Date()): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!personIds.length) return out;
+  const name = trSql("membership_plan", "name", lang).as("name");
+  const own = await livePlans(db, at).select(["membership.person_id", name]).where("membership.person_id", "in", personIds).execute();
+  const family = await livePlans(db, at).innerJoin("membership_member", "membership_member.membership_id", "membership.id").select(["membership_member.person_id", name])
+    .where("membership_member.person_id", "in", personIds).where((w) => w.or([w("membership_member.ends_at", "is", null), w("membership_member.ends_at", ">", at)])).execute();
+  for (const r of [...own, ...family]) if (!out.has(r.person_id)) out.set(r.person_id, r.name);
+  return out;
 }
 
 /** After a failed renewal, try the card again this many days later; after the last, the membership ends. */
