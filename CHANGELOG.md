@@ -7,7 +7,7 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.9.0 (2026-11-22)
 
 A service's keys are set in the staff app or by the owner's agent, and the settings are named OPENPADEL_.
 
