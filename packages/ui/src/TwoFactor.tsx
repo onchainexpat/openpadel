@@ -4,7 +4,7 @@
 // Loaded only when it's needed.
 import { useEffect, useState } from "preact/hooks";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
-import { api, ApiError, club, emailedNote, loadMe, me, signOutHere, t } from "./state.ts";
+import { api, ApiError, club, emailedNote, loadMe, me, passkeyFailure, signOutHere, t } from "./state.ts";
 import { protectedPost } from "./pow.ts";
 import { passkeyWords } from "./passkeys.ts";
 import { usePreview } from "./Preview.tsx";
@@ -61,9 +61,12 @@ export function TwoFactor() {
   useEffect(() => { api<Status>("/my/two-factor").then(setStatus).catch(() => {}); }, []);
   const attempt = async (f: () => Promise<void>) => { setBusy(true); setError(null); try { await f(); } catch (e) { setError(message(e)); } finally { setBusy(false); } };
   const verify = (e: Event) => { e.preventDefault(); attempt(async () => { await api(mode === "recovery" ? "/auth/recovery" : "/auth/totp/verify", { code }); await loadMe(); }); };
+  // A passkey that doesn't answer here (it's saved on another phone or computer, or was cancelled): what to do from
+  // this screen, which has no code to send instead (passkey_not_saved is for adding one).
   const passkey = () => attempt(async () => {
     const o = await api<{ challenge_id: string; options: any }>("/auth/passkey/sign-in/options", {});
-    await api("/auth/passkey/sign-in/verify", { challenge_id: o.challenge_id, response: await startAuthentication({ optionsJSON: o.options }) });
+    const response = await startAuthentication({ optionsJSON: o.options }).catch((e) => { throw passkeyFailure(e) ? new Error(t("ui.two_step_passkey_failed")) : e; });
+    await api("/auth/passkey/sign-in/verify", { challenge_id: o.challenge_id, response });
     await loadMe();
   });
   // A new passkey is both steps, but this session was made with the emailed code: sign in with it once.

@@ -24,6 +24,12 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
   corner saying it came from Playtomic (a plain arrow, not Playtomic's logo). The legend shows the mark, instead of a
   Playtomic colour, on days with copies. The day's occupancy and bookings count them as before.
 
+### Fixed
+- The second sign-in step's passkey button, when the passkey is on another phone or computer, said to "keep signing in
+  with a code we send you", and that screen has no such code. It now says to try again on the device where the passkey
+  is saved, that an owner can start someone's second step over from their page, and that an owner who is locked out
+  has it started over on the server with `openpadel reset-sign-in`. Adding a passkey keeps its own words.
+
 ## 0.8.1 (2026-11-21)
 
 openPadel's plugin catalog is published, and a club's server reads it.

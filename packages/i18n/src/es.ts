@@ -3803,6 +3803,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.two_step_use_recovery": "Usar un código de recuperación",
   "ui.two_step_use_app_code": "Usar el código de la app",
   "ui.two_step_passkey_hint": "Inicia sesión con tu llave de acceso para terminar.",
+  "ui.two_step_passkey_failed": "Tu llave de acceso no respondió. Inténtalo de nuevo en el teléfono o la computadora donde la guardaste. Si no lo tienes a mano, un dueño puede empezar de nuevo tu segundo paso desde tu página en Clientes. Si es el dueño quien no puede entrar, quien administra el servidor del club escribe ahí openpadel reset-sign-in y el correo del dueño.",
   "ui.two_step_required": "Das un segundo paso en cada inicio de sesión.",
   "ui.two_step_optional": "Puedes agregar un segundo paso a tu inicio de sesión: una llave de acceso, o un código de una app de autenticación después del código por correo.",
   "ui.authenticator_scan": "Escanea este código con una app de autenticación (como Google Authenticator, Microsoft Authenticator o 1Password). Muestra un código nuevo de 6 dígitos para {club} cada 30 segundos.",

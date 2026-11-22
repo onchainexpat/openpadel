@@ -3800,6 +3800,7 @@ export const en = {
   "ui.two_step_use_recovery": "Use a recovery code",
   "ui.two_step_use_app_code": "Use the app's code",
   "ui.two_step_passkey_hint": "Sign in with your passkey to finish.",
+  "ui.two_step_passkey_failed": "Your passkey didn't answer. Try again on the phone or computer where it's saved. If you can't get to it, an owner can start your second step over from your page under Customers. An owner who is locked out: whoever runs the club's server types openpadel reset-sign-in and the owner's email there.",
   "ui.two_step_required": "You give a second step at every sign-in.",
   "ui.two_step_optional": "You can add a second step to your sign-in: a passkey, or a code from an authenticator app after the emailed code.",
   "ui.authenticator_scan": "Scan this code with an authenticator app (such as Google Authenticator, Microsoft Authenticator or 1Password). It shows a new 6-digit code for {club} every 30 seconds.",
