@@ -16,7 +16,7 @@ $0.50. Every call counts on the club's monthly meter (Usage, "AI: Ask openPadel"
 
 ## Turning it on
 
-It uses the same key as Ask the club: `KUMI_ANTHROPIC_API_KEY` in `/etc/kumi/kumi.env` on the server
+It uses the same key as Ask the club: `OPENPADEL_ANTHROPIC_API_KEY` in `/etc/kumi/kumi.env` on the server
 ([ask-the-club.md](ask-the-club.md) says how to make one). The owner types it there themselves; never paste a key into a
 chat. Restart openPadel (`sudo systemctl restart kumi`, or `deploy/docker/update.sh` on Docker), then run
 `openpadel doctor`: `assistant` says `ok`.

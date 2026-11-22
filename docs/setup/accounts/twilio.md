@@ -23,9 +23,9 @@ real texts won't reach anyone.** openPadel turns texts on by itself when Twilio 
 2. **Owner: add the keys** to the server's settings file by typing them in, never through the chat. The
    Account SID and Auth Token are on the Twilio console's home page (the live ones, not the test credentials):
    ```
-   KUMI_TWILIO_ACCOUNT_SID=AC...
-   KUMI_TWILIO_AUTH_TOKEN=...
-   KUMI_SMS_TEST_TO=+15035550123,+15035550124     # practice mode only: who gets real texts
+   OPENPADEL_TWILIO_ACCOUNT_SID=AC...
+   OPENPADEL_TWILIO_AUTH_TOKEN=...
+   OPENPADEL_SMS_TEST_TO=+15035550123,+15035550124     # practice mode only: who gets real texts
    ```
    The agent restarts openPadel (`systemctl restart kumi`).
 3. **Owner: the business's details** go in club.yaml's `texting:` section (club.example.yaml has every
@@ -44,7 +44,7 @@ real texts won't reach anyone.** openPadel turns texts on by itself when Twilio 
    - buys a toll-free number that can text (or uses `texting.number`, one the club already has);
    - makes a Messaging Service, "Club name texts (openPadel)", sending texts members reply with to
      `https://staff.app.yourclub.com/webhooks/twilio/sms` and delivery reports to `.../webhooks/twilio/status`
-     (the staff app's address, `KUMI_PUBLIC_URL`), and puts the number in it;
+     (the staff app's address, `OPENPADEL_PUBLIC_URL`), and puts the number in it;
    - sends the toll-free verification: account notices and sign-in codes to the club's own members, who opt
      in on a web form in the app. openPadel writes the use case, a real sample text and the opt-in description
      itself, and points the reviewers at `https://app.yourclub.com/public/texts`, a page on the members' address
@@ -65,8 +65,8 @@ real texts won't reach anyone.** openPadel turns texts on by itself when Twilio 
    code, confirm it, tick the yes and turn texts on. Then text HELP to the club's number: the answer should
    start with the club's name.
 
-**Already have a registered number?** Skip `openpadel texting`: put `KUMI_TWILIO_MESSAGING_SERVICE_SID=MG...` (or
-`KUMI_TWILIO_FROM=+1...`, one number) in the settings file and point the Messaging Service's incoming texts at
+**Already have a registered number?** Skip `openpadel texting`: put `OPENPADEL_TWILIO_MESSAGING_SERVICE_SID=MG...` (or
+`OPENPADEL_TWILIO_FROM=+1...`, one number) in the settings file and point the Messaging Service's incoming texts at
 `https://staff.app.yourclub.com/webhooks/twilio/sms` yourself. A sender in the settings file always wins.
 
 **Texting through a host's Twilio account.** A host that runs openPadel for several clubs can give each club a
@@ -107,7 +107,7 @@ file. openPadel doesn't register 10DLC by itself yet.
   its delivery report gives one) and the eleven months before it.
 - Texts count toward the club's one monthly cap for AI, texts and email: the Usage page in the staff app,
   $50 a month to start, set by the owner (README, "What outside services cost"). The price per segment the
-  meter uses is 1.26 cents unless `KUMI_PRICES` says otherwise (`docs/settings.md`).
+  meter uses is 1.26 cents unless `OPENPADEL_PRICES` says otherwise (`docs/settings.md`).
 - At 80% of the cap the owner and managers hear once, and once more at the cap. Past the cap (and what's
   allowed over it), texts that can wait aren't sent: the message is in the member's inbox and goes by email
   where they have one. Codes and the HELP and START answers carriers require keep going up to twice that (at

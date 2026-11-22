@@ -27,7 +27,7 @@ Make the agent in the staff app, Settings, Agents (only a person there can make 
 once. On the machine it runs on, keep it in the environment, never in a command's arguments:
 
 ```bash
-export KUMI_AGENT_TOKEN=opa_...        # from a secret store, not typed into the shell's history
+export OPENPADEL_AGENT_TOKEN=opa_...        # from a secret store, not typed into the shell's history
 openpadel login https://staff.yourclub.com --agent-token
 openpadel whoami                        # the agent, its role, and its weekly limit left
 ```

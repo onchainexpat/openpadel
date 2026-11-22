@@ -83,7 +83,7 @@ The agent never sees a password or a code from an email. The person types those 
 **The owner's first sign-in, before the club's email is set up.** With no email service on the server yet, a sign-in
 code only reaches the server's log, which the owner usually can't read (only the agent's SSH key works there), and the
 agent must not read a code out of it and pass it on. Either set up email first ([resend.md](../setup/accounts/resend.md),
-with the owner's address in `KUMI_MAIL_TEST_TO` while practice mode is on), or, on the server:
+with the owner's address in `OPENPADEL_MAIL_TEST_TO` while practice mode is on), or, on the server:
 
 ```bash
 openpadel sign-in-link owner@yourclub.com      # prints a link for that owner; --json for {"url": ..., "expires_at": ...}
@@ -113,8 +113,8 @@ refused. A club's real addresses don't have this.
 **Where the sign-in is kept:**
 
 - in the system keychain when there is one (`secret-tool` on Linux, the Keychain on a Mac);
-- otherwise in `~/.config/kumi/secrets.json`, readable by the user only. `KUMI_CONFIG_DIR` moves the folder, and
-  `KUMI_CLI_KEYCHAIN=0` keeps the tokens in the file.
+- otherwise in `~/.config/kumi/secrets.json`, readable by the user only. `OPENPADEL_CONFIG_DIR` moves the folder, and
+  `OPENPADEL_CLI_KEYCHAIN=0` keeps the tokens in the file.
 
 The access token lasts an hour and renews itself, one command at a time, so commands run in parallel don't trip over
 each other.
@@ -123,7 +123,7 @@ each other.
 
 - `openpadel clubs` lists the clubs signed in to here.
 - `openpadel use <address>` picks the one commands go to.
-- `--club <address>` (or `KUMI_CLUB`) picks one for a single command.
+- `--club <address>` (or `OPENPADEL_CLUB`) picks one for a single command.
 - `openpadel logout` signs out here and ends the connection at the club.
 - `openpadel whoami` says who you are there, your roles, and what the spending limit leaves this week.
 

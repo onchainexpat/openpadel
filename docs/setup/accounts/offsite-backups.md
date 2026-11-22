@@ -14,12 +14,12 @@ nothing to download; B2 charges a little past a free daily allowance. Either is 
 
 ## Before either: the backup key
 
-Offsite copies are sealed with `KUMI_BACKUP_KEY`, a key of its own, not the server's. `server-setup.sh`
+Offsite copies are sealed with `OPENPADEL_BACKUP_KEY`, a key of its own, not the server's. `server-setup.sh`
 makes one in `/etc/kumi/kumi.env`; a server set up before it needs one made (the agent runs this; it
 prints nothing):
 
 ```bash
-grep -q '^KUMI_BACKUP_KEY=.' /etc/kumi/kumi.env || echo "KUMI_BACKUP_KEY=$(head -c 32 /dev/urandom | base64)" >> /etc/kumi/kumi.env
+grep -q '^OPENPADEL_BACKUP_KEY=.' /etc/kumi/kumi.env || echo "OPENPADEL_BACKUP_KEY=$(head -c 32 /dev/urandom | base64)" >> /etc/kumi/kumi.env
 ```
 
 **Owner: keep a copy of it away from the server**, in a password manager. Without it, the offsite
@@ -27,7 +27,7 @@ copies can't be opened, and the copy on the server is lost with the server. Look
 own terminal, never through the chat:
 
 ```bash
-sudo grep -E '^KUMI_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env
+sudo grep -E '^OPENPADEL_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env
 ```
 
 **An owner with no shell on the server** (the common case: only the agent's SSH key works there) uses the
@@ -46,11 +46,11 @@ that can't copy text out (some show the screen as a picture) means typing each k
 way, the agent then runs `openpadel keys`, which prints only each key's last 4 characters, and the owner checks
 their copies end the same. The agent never asks the owner to read a key out, and never reads one itself.
 
-Keep `KUMI_SECRET_KEY` there too. It seals the few secrets inside the database (the vault, staff
+Keep `OPENPADEL_SECRET_KEY` there too. It seals the few secrets inside the database (the vault, staff
 authenticators, the push key). A restore without it brings back everything else, and those few need
 setting up again.
 
-Keep the five `KUMI_OFFSITE_*` settings there too, once you've made them below (R2 and B2 show the
+Keep the five `OPENPADEL_OFFSITE_*` settings there too, once you've made them below (R2 and B2 show the
 secret only once). Without them you'd make a new key for the bucket before you can restore.
 
 ## Cloudflare R2
@@ -68,11 +68,11 @@ secret only once). Without them you'd make a new key for the bucket before you c
    sudo nano /etc/kumi/kumi.env
    ```
    ```
-   KUMI_OFFSITE_ENDPOINT=https://<account id>.r2.cloudflarestorage.com
-   KUMI_OFFSITE_BUCKET=yourclub-kumi-backups
-   KUMI_OFFSITE_ACCESS_KEY_ID=...
-   KUMI_OFFSITE_SECRET_ACCESS_KEY=...
-   KUMI_OFFSITE_REGION=auto
+   OPENPADEL_OFFSITE_ENDPOINT=https://<account id>.r2.cloudflarestorage.com
+   OPENPADEL_OFFSITE_BUCKET=yourclub-kumi-backups
+   OPENPADEL_OFFSITE_ACCESS_KEY_ID=...
+   OPENPADEL_OFFSITE_SECRET_ACCESS_KEY=...
+   OPENPADEL_OFFSITE_REGION=auto
    ```
 5. **Agent: check it** (below).
 
@@ -89,11 +89,11 @@ secret only once). Without them you'd make a new key for the bucket before you c
    **applicationKey** (once).
 5. **Owner: add them to the server's settings**, typed in, never through the chat:
    ```
-   KUMI_OFFSITE_ENDPOINT=https://s3.us-west-004.backblazeb2.com
-   KUMI_OFFSITE_BUCKET=yourclub-kumi-backups
-   KUMI_OFFSITE_ACCESS_KEY_ID=<keyID>
-   KUMI_OFFSITE_SECRET_ACCESS_KEY=<applicationKey>
-   KUMI_OFFSITE_REGION=us-west-004
+   OPENPADEL_OFFSITE_ENDPOINT=https://s3.us-west-004.backblazeb2.com
+   OPENPADEL_OFFSITE_BUCKET=yourclub-kumi-backups
+   OPENPADEL_OFFSITE_ACCESS_KEY_ID=<keyID>
+   OPENPADEL_OFFSITE_SECRET_ACCESS_KEY=<applicationKey>
+   OPENPADEL_OFFSITE_REGION=us-west-004
    ```
 6. **Agent: check it** (below).
 
@@ -122,7 +122,7 @@ that, let the storage expire old copies on its own schedule, protect them from d
 not to delete anything:
 
 ```
-KUMI_OFFSITE_PRUNE=0
+OPENPADEL_OFFSITE_PRUNE=0
 ```
 
 openPadel never overwrites an offsite copy (every night's has its own name, and a month's copy is written once),
@@ -162,13 +162,13 @@ tool, from the same repository as Postgres) copies each finished piece of that l
 while the club is busy, and takes a base backup every night at 3:37 club time (a full one weekly). Two copies:
 - **on the server** (`/var/lib/pgbackrest`), any minute of the last 14 days: the quick one, for mistakes;
 - **offsite**, in the same bucket as the nightly copies (`kumi/pitr/<the cluster's id>/`), any minute of the
-  last 30 days, sealed with a key made from `KUMI_BACKUP_KEY`, so the key in the password manager opens it too.
-  pgBackRest deletes its own old pieces, so with `KUMI_OFFSITE_PRUNE=0` (a key that can't delete) the offsite
+  last 30 days, sealed with a key made from `OPENPADEL_BACKUP_KEY`, so the key in the password manager opens it too.
+  pgBackRest deletes its own old pieces, so with `OPENPADEL_OFFSITE_PRUNE=0` (a key that can't delete) the offsite
   copy stays off and only the server's runs; `openpadel doctor` says so.
 
 `server-setup.sh` turns it on (it starts Postgres again once, to archive); the next update (or the first ship)
 sets pgBackRest up and takes the first base backup. On a server set up before this, run `server-setup.sh` again
-once. `KUMI_PITR=0`, in the environment of `server-setup.sh` and in `/etc/kumi/kumi.env`, leaves it off.
+once. `OPENPADEL_PITR=0`, in the environment of `server-setup.sh` and in `/etc/kumi/kumi.env`, leaves it off.
 
 **With Docker**, the `pitr` service does all of this beside Postgres, with the same two copies, the same test and the
 same checks; going back is `docker compose exec pitr openpadel restore --to=... --yes` with `kumi` stopped
@@ -223,9 +223,9 @@ postgres user can open.
 ## Restoring after losing the server
 
 1. Set up a new server with `server-setup.sh` and ship the code (see [server.md](server.md)).
-2. **Owner:** replace the new server's `KUMI_BACKUP_KEY` line with the one from the password manager,
-   and add the five `KUMI_OFFSITE_*` settings, in `/etc/kumi/kumi.env`. If you kept the old `KUMI_SECRET_KEY`, add it as
-   `KUMI_SECRET_KEY_PREVIOUS` (the new server made its own `KUMI_SECRET_KEY`).
+2. **Owner:** replace the new server's `OPENPADEL_BACKUP_KEY` line with the one from the password manager,
+   and add the five `OPENPADEL_OFFSITE_*` settings, in `/etc/kumi/kumi.env`. If you kept the old `OPENPADEL_SECRET_KEY`, add it as
+   `OPENPADEL_SECRET_KEY_PREVIOUS` (the new server made its own `OPENPADEL_SECRET_KEY`).
 3. `sudo openpadel restore offsite:latest --yes` (it stops the server, restores, and starts it again), then
    `openpadel rotate-key` and `openpadel doctor`.
 4. To go to a later minute than last night's backup: the old server's point-in-time archive is offsite, in its

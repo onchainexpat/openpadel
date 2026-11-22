@@ -4,18 +4,18 @@ For a club running openPadel itself, and for Kumi's trial server. One small Ubun
 memory is plenty for a club) runs Postgres 17, the API, both apps and HTTPS.
 
 ```bash
-# once, on the new server, as root: KUMI_HOST is the members' app; staff use staff.<KUMI_HOST>
-KUMI_HOST=app.yourclub.com bash server-setup.sh
+# once, on the new server, as root: OPENPADEL_HOST is the members' app; staff use staff.<OPENPADEL_HOST>
+OPENPADEL_HOST=app.yourclub.com bash server-setup.sh
 # from a checkout, each time you update:
 deploy/ship.sh root@your.server.ip
 ```
 
-- **HTTPS** comes from Caddy and Let's Encrypt, for `KUMI_HOST` and `staff.KUMI_HOST`. Point both at the
+- **HTTPS** comes from Caddy and Let's Encrypt, for `OPENPADEL_HOST` and `staff.OPENPADEL_HOST`. Point both at the
   server in DNS first. Without a domain yet, `<ip-with-dashes>.sslip.io` works for a trial (and moving to the
   club's domain later is in [docs/setup/accounts/server.md](../docs/setup/accounts/server.md), "No domain yet").
 - **Settings** live in `/etc/kumi/kumi.env` (Stripe, Resend, offsite backups): edit, then
   `systemctl restart kumi`. Never commit them. Every setting is in [docs/settings.md](../docs/settings.md).
-- **Practice mode** (`KUMI_PRACTICE=1`, the default here) sends real email only to `KUMI_MAIL_TEST_TO`.
+- **Practice mode** (`OPENPADEL_PRACTICE=1`, the default here) sends real email only to `OPENPADEL_MAIL_TEST_TO`.
   Remove it when the club switches over.
 - **Logs:** `journalctl -u kumi -f`. Until email is set up, sign-in codes are in that log.
 
@@ -23,14 +23,14 @@ deploy/ship.sh root@your.server.ip
 
 `server-setup.sh` makes two keys in `/etc/kumi/kumi.env` and never prints them:
 
-- `KUMI_SECRET_KEY` seals the secrets openPadel keeps in its database (staff authenticators, the push signing
+- `OPENPADEL_SECRET_KEY` seals the secrets openPadel keeps in its database (staff authenticators, the push signing
   key, the owner's vault) with AES-256-GCM. The server won't start in production without it. A server set up
   before it existed gets one on its next update, and its secrets are sealed as it starts.
-- `KUMI_BACKUP_KEY` seals the offsite copies of the backups. It's separate on purpose: the owner keeps a copy
-  of it (and of `KUMI_SECRET_KEY`) away from the server, in a password manager, so the backups still open
+- `OPENPADEL_BACKUP_KEY` seals the offsite copies of the backups. It's separate on purpose: the owner keeps a copy
+  of it (and of `OPENPADEL_SECRET_KEY`) away from the server, in a password manager, so the backups still open
   after losing the server.
 
-To change `KUMI_SECRET_KEY`: put the old one in `KUMI_SECRET_KEY_PREVIOUS`, a new one in `KUMI_SECRET_KEY`,
+To change `OPENPADEL_SECRET_KEY`: put the old one in `OPENPADEL_SECRET_KEY_PREVIOUS`, a new one in `OPENPADEL_SECRET_KEY`,
 restart, run `openpadel rotate-key` (it says how many it moved), then remove the old one.
 
 ## Updating, and going back
@@ -75,7 +75,7 @@ later. `sudo openpadel rollback` and `sudo openpadel releases` use root's own co
   never replaces the night's.
 - **Offsite**, once it's set up ([docs/setup/accounts/offsite-backups.md](../docs/setup/accounts/offsite-backups.md)):
   the same night's dump goes to the club's own S3-compatible storage (Cloudflare R2, Backblaze B2, AWS S3,
-  DigitalOcean Spaces), sealed with `KUMI_BACKUP_KEY`. 30 daily and 12 monthly copies are kept. One upload
+  DigitalOcean Spaces), sealed with `OPENPADEL_BACKUP_KEY`. 30 daily and 12 monthly copies are kept. One upload
   is at most 512 MB, far above a club's database (a few MB).
 - **Once a month** (`kumi-restore-test.timer`, the 1st at 4:17 on the club's clock): `openpadel restore-test` restores the newest
   backup (offsite if set up) into the `kumi_restore_test` database, checks every table and row against

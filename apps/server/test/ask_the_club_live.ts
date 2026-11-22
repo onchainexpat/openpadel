@@ -1,5 +1,5 @@
 // The live check for ask the club: runs the labelled set (ask_the_club_set.ts) through each model whose key is
-// set, KUMI_TYPESAFE_API_KEY (Jev) and KUMI_ANTHROPIC_API_KEY (Claude Haiku), and says how often each sent the
+// set, OPENPADEL_TYPESAFE_API_KEY (Jev) and OPENPADEL_ANTHROPIC_API_KEY (Claude Haiku), and says how often each sent the
 // right fact, handed over what needed a person, and (what matters most) sent a fact it shouldn't have. It costs
 // cents and isn't part of `npm test`; with no key it does nothing.
 //
@@ -7,6 +7,7 @@
 //   ATC_OUT=jev.json node apps/server/test/ask_the_club_live.ts # also keep the answers, for --compare
 //   node apps/server/test/ask_the_club_live.ts --compare jev.json haiku.json
 import { readFileSync, writeFileSync } from "node:fs";
+import { setting } from "@kumi/core";
 import { haikuProvider, jevProvider, makeAnswerer } from "../src/answerer.ts";
 import { SET_QUESTIONS, factsIn } from "./ask_the_club_set.ts";
 
@@ -23,10 +24,10 @@ if (process.argv[2] === "--compare") {
 }
 
 const models = [
-  ...(process.env.KUMI_TYPESAFE_API_KEY ? [{ name: "jev", p: jevProvider(process.env.KUMI_TYPESAFE_API_KEY) }] : []),
-  ...(process.env.KUMI_ANTHROPIC_API_KEY ? [{ name: "haiku", p: haikuProvider(process.env.KUMI_ANTHROPIC_API_KEY) }] : []),
+  ...(setting("TYPESAFE_API_KEY") ? [{ name: "jev", p: jevProvider(setting("TYPESAFE_API_KEY")!) }] : []),
+  ...(setting("ANTHROPIC_API_KEY") ? [{ name: "haiku", p: haikuProvider(setting("ANTHROPIC_API_KEY")!) }] : []),
 ];
-if (!models.length) { console.log("skipped: set KUMI_TYPESAFE_API_KEY and/or KUMI_ANTHROPIC_API_KEY"); process.exit(0); }
+if (!models.length) { console.log("skipped: set OPENPADEL_TYPESAFE_API_KEY and/or OPENPADEL_ANTHROPIC_API_KEY"); process.exit(0); }
 
 for (const { name, p } of models) {
   const a = makeAnswerer([p])!, rows: Row[] = [];

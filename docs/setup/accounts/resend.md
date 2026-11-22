@@ -29,30 +29,30 @@ month for 50,000 with no daily limit.
 5. **Owner: create an API key** (API keys, then Create) with **Sending access** only, limited to
    the domain. Add it to the server's settings file by typing it in, never through the chat:
    ```
-   KUMI_RESEND_API_KEY=re_...
-   KUMI_MAIL_FROM="Your Club <hello@mail.yourclub.com>"
-   KUMI_MAIL_REPLY_TO=desk@yourclub.com          # optional: where replies go
-   KUMI_MAIL_TEST_TO=owner@example.com,staff@example.com   # practice mode only
+   OPENPADEL_RESEND_API_KEY=re_...
+   OPENPADEL_MAIL_FROM="Your Club <hello@mail.yourclub.com>"
+   OPENPADEL_MAIL_REPLY_TO=desk@yourclub.com          # optional: where replies go
+   OPENPADEL_MAIL_TEST_TO=owner@example.com,staff@example.com   # practice mode only
    ```
 6. **Owner: send Resend's reports to openPadel** (Webhooks, then Add webhook): the endpoint is the members'
    address with `/webhooks/resend` (for example `https://app.yourclub.com/webhooks/resend`), for the
    events `email.bounced`, `email.complained` and `email.suppressed`. Copy its signing secret
    (`whsec_...`) into the settings file the same way, never through the chat:
    ```
-   KUMI_RESEND_WEBHOOK_SECRET=whsec_...
+   OPENPADEL_RESEND_WEBHOOK_SECRET=whsec_...
    ```
    From then on, an address that bounces for good or marks the club's email as spam gets no more of
    it: the member's app asks them to change it, and the desk can send to it again from the person's
    page once it's fixed. Sign-in codes still go.
-7. **Agent:** `systemctl restart kumi`, then `openpadel doctor`. While `KUMI_PRACTICE=1` is set, only the
-   `KUMI_MAIL_TEST_TO` addresses get real email; everyone else's is held and logged.
+7. **Agent:** `systemctl restart kumi`, then `openpadel doctor`. While `OPENPADEL_PRACTICE=1` is set, only the
+   `OPENPADEL_MAIL_TEST_TO` addresses get real email; everyone else's is held and logged.
 8. **Test:** sign in to the staff app as an address on the test list; the code should arrive
    within a minute. Check the spam folder the first time.
 
 ## Common problems
 - **Resend says the domain isn't verified:** a record is missing or mistyped (the DKIM value is
   the usual one). Compare `dig` with what Resend shows.
-- **`email` fails with "KUMI_MAIL_FROM isn't set":** add it; it must be an address on the
+- **`email` fails with "OPENPADEL_MAIL_FROM isn't set":** add it; it must be an address on the
   verified domain.
 - **Emails land in spam:** add the DMARC record, and send from the subdomain you verified.
 - **A member says the club's email stopped:** their page in the staff app says why (it bounced, or was

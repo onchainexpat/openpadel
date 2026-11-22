@@ -94,7 +94,7 @@ removing things is done in the staff app, where the preview shows what each chan
 The owner then signs in to the staff app with their email address, and a code arrives by email. Before
 email is set up (step 5), the code would only reach the server's log, which the owner usually can't read
 and the agent must not pass on. So either set up email first, with the owner's address in
-`KUMI_MAIL_TEST_TO`, or the agent runs `openpadel sign-in-link owner@yourclub.com` on the server and gives the
+`OPENPADEL_MAIL_TEST_TO`, or the agent runs `openpadel sign-in-link owner@yourclub.com` on the server and gives the
 owner the link it prints, without opening it. The link works once, for 15 minutes, only for an owner and
 only while the server has no email service; opening it shows a Sign in button, and that signs them in
 ([docs/cli/README.md](../cli/README.md), "The owner's first sign-in"). Other staff sign in once email is
@@ -501,9 +501,9 @@ the club owns (Cloudflare R2 or Backblaze B2; both have a free allowance far abo
 
 - **Agent:** run `openpadel backup`, `openpadel offsite` and `openpadel restore-test`; `openpadel doctor` should show
   `offsite` and `restore_test` as `ok`. The restore test runs by itself once a month from then on.
-- **Owner:** keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager. The agent never reads
+- **Owner:** keep `OPENPADEL_BACKUP_KEY` and `OPENPADEL_SECRET_KEY` in a password manager. The agent never reads
   them: the owner looks at them on the server in their own terminal
-  (`sudo grep -E '^KUMI_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env`), or, with no shell of their own on the
+  (`sudo grep -E '^OPENPADEL_(BACKUP|SECRET)_KEY=' /etc/kumi/kumi.env`), or, with no shell of their own on the
   server, in the provider's web console ([offsite-backups.md](accounts/offsite-backups.md), "An owner with no
   shell"). Then `openpadel keys` (the agent can run it) shows each key's last 4 characters, never the key, so
   the owner checks their copies end the same. Without the backup key, the offsite copies can't be opened.
@@ -695,7 +695,7 @@ Not done yet, and each needs a decision before a club outside the US goes live:
   can't change them. A role with no location keeps all of its role's reach.
 - **Bot protection** is on by itself: sign-up, sign-in codes and card forms ask the browser to solve a
   small puzzle first, and a hidden field catches scripts that fill in everything. Nothing to set up. On a
-  practice machine, `KUMI_BOT_CHECK=0` turns it off for scripts that sign in over the API; production
+  practice machine, `OPENPADEL_BOT_CHECK=0` turns it off for scripts that sign in over the API; production
   refuses to start that way.
 - **A member's own email.** Profile, Email: a member adds one (an account that joined by phone) or
   changes it. A code goes to the new address first. On a change, the old address is told, with a link good
@@ -785,7 +785,7 @@ openPadel, seals the secrets with the new server's key, and says what's left to 
 email, texts and payments are the old server's or its host's, so the new server gets its own. If the
 club's web address changed, passkeys stop working (a passkey belongs to its address): people sign in
 with a code and add one again. A club that took card payments on its own Stripe account through a hosted
-openPadel puts that account's keys in `KUMI_STRIPE_SECRET_KEY` and `KUMI_STRIPE_PUBLISHABLE_KEY`, so refunds
+openPadel puts that account's keys in `OPENPADEL_STRIPE_SECRET_KEY` and `OPENPADEL_STRIPE_PUBLISHABLE_KEY`, so refunds
 of earlier payments still work.
 
 The file also carries what was still waiting to go out on the old server: emails, texts and notices not
@@ -896,8 +896,8 @@ in [levels-from-other-apps.md](../levels-from-other-apps.md).
 
 ### Step 8: practice
 
-Practice mode (`KUMI_PRACTICE=1`, on by default) sends real email only to the addresses in
-`KUMI_MAIL_TEST_TO`, so the staff can try everything on themselves: create a clinic, sign up, pay
+Practice mode (`OPENPADEL_PRACTICE=1`, on by default) sends real email only to the addresses in
+`OPENPADEL_MAIL_TEST_TO`, so the staff can try everything on themselves: create a clinic, sign up, pay
 with Stripe's test card (4242 4242 4242 4242, any future date, any CVC), take someone off with or
 without a refund, run an Americano night.
 
@@ -906,7 +906,7 @@ without a refund, run an Americano night.
 Only when the owner says so:
 
 1. Stripe: switch to live keys ([accounts/stripe.md](accounts/stripe.md), "Going live").
-2. Email: remove `KUMI_PRACTICE=1` from `/etc/kumi/kumi.env`.
+2. Email: remove `OPENPADEL_PRACTICE=1` from `/etc/kumi/kumi.env`.
 3. `systemctl restart kumi`, then `openpadel doctor`: nothing should say FAIL, and `offsite` and
    `restore_test` should be `ok`. Optional pieces the club skipped say `off`.
 4. Turn on "Members book courts in the app" (Settings, The club) if it isn't on yet.
@@ -934,8 +934,8 @@ an export ask for something: the file's passphrase, typed by the owner (it isn't
 | `openpadel backup` | Tonight's backup now: the dump and its manifest, and the offsite copy if it's set up. |
 | `openpadel offsite` | What's kept offsite. |
 | `openpadel restore-test` | Restores the newest backup into a scratch database and checks every table. |
-| `openpadel rotate-key` | Seals every secret with `KUMI_SECRET_KEY` (the old key in `KUMI_SECRET_KEY_PREVIOUS`). |
-| `openpadel keys` | Whether `KUMI_SECRET_KEY` and `KUMI_BACKUP_KEY` are set, and each one's last 4 characters (never the key): for the owner to check the copies they keep. |
+| `openpadel rotate-key` | Seals every secret with `OPENPADEL_SECRET_KEY` (the old key in `OPENPADEL_SECRET_KEY_PREVIOUS`). |
+| `openpadel keys` | Whether `OPENPADEL_SECRET_KEY` and `OPENPADEL_BACKUP_KEY` are set, and each one's last 4 characters (never the key): for the owner to check the copies they keep. |
 | `openpadel export [--out=<folder>]` | Everything the club needs to run somewhere else, in one file sealed with a passphrase the owner types. |
 | `openpadel read-only on \| off \| status` | The host's switch for an account that isn't paid: nothing new is booked or charged; everyone keeps their data. |
 | `openpadel leaving on --date=YYYY-MM-DD [--kept-days=N] \| off \| status` | The day the club's openPadel ends: the owners are told at once, and a week and a day before, to download everything. |

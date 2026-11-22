@@ -21,7 +21,7 @@ npm install
 docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:55432:5432 postgres:17.9-alpine
 docker exec kumi-dev-pg createdb -U postgres kumi
 node apps/server/src/seed.ts            # a demo club; or: npm run openpadel -- setup apply club.example.yaml
-KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts
+OPENPADEL_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts
 npm run dev -w @kumi/manager            # the staff app, http://localhost:5173
 npm run dev -w @kumi/member             # the members' app, http://localhost:5174
 ```
@@ -30,7 +30,7 @@ Sign-in codes appear in the server's output.
 ## Ask the club's test set
 
 After changing the questions or how sure the model must be (`apps/server/src/answerer.ts`), run
-`node apps/server/test/ask_the_club_live.ts` with `KUMI_TYPESAFE_API_KEY` and `KUMI_ANTHROPIC_API_KEY`
+`node apps/server/test/ask_the_club_live.ts` with `OPENPADEL_TYPESAFE_API_KEY` and `OPENPADEL_ANTHROPIC_API_KEY`
 in the environment. It sends a labelled set of questions to both models and costs cents. A wrong fact
 sent is the result that matters; a missed one is better than a wrong one.
 

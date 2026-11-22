@@ -21,7 +21,7 @@ you'd like it.
   such a session can do nothing but finish signing in. Recovery codes are kept as salted scrypt hashes. The
   authenticator's secret is sealed (below) and kept out of the change log.
 - **Secrets sealed with the server's own key.** Authenticator secrets, the push signing key and
-  everything in the owner's vault are sealed with AES-256-GCM under `KUMI_SECRET_KEY` (32 random bytes made
+  everything in the owner's vault are sealed with AES-256-GCM under `OPENPADEL_SECRET_KEY` (32 random bytes made
   at install, never printed), a fresh nonce each time and the key's id in front, so the key can be changed
   (`openpadel rotate-key`). Production won't start without it. Two kinds of link key stay as they are because
   they're looked up by value: a club news email's unsubscribe key and a coach's calendar link (both do one
@@ -32,7 +32,7 @@ you'd like it.
   secret is never shown again (only its last four characters); a document comes back only as a download
   (type checked by its first bytes, `nosniff`, never shown in the page), and each download is kept.
 - **Backups** are dumped with a manifest of every table's rows from one snapshot. Offsite copies are sealed
-  with `KUMI_BACKUP_KEY` (AES-256-GCM) before they leave the server, signed for the club's own storage
+  with `OPENPADEL_BACKUP_KEY` (AES-256-GCM) before they leave the server, signed for the club's own storage
   with AWS Signature Version 4, and restored into a scratch database once a month to check they work.
 - **Bot protection** with no third party on sign-up, sign-in codes and opening a card form: a hidden
   field, and a signed, short-lived SHA-256 proof of work that gets harder for an address that keeps
@@ -62,8 +62,8 @@ you'd like it.
   updates with `deploy/ship.sh` when they come out.
 - Keep keys only in `/etc/kumi/kumi.env` on the server. Never commit them, paste them into a chat or
   send them by email.
-- Set up offsite backups (`docs/setup/accounts/offsite-backups.md`), and keep `KUMI_BACKUP_KEY` and
-  `KUMI_SECRET_KEY` in a password manager away from the server: without the backup key the offsite copies
+- Set up offsite backups (`docs/setup/accounts/offsite-backups.md`), and keep `OPENPADEL_BACKUP_KEY` and
+  `OPENPADEL_SECRET_KEY` in a password manager away from the server: without the backup key the offsite copies
   can't be opened.
 - Staff, especially owners, should add a passkey (Profile in the staff app), and keep their recovery
   codes somewhere safe. An owner locked out is reset on the server: `openpadel reset-sign-in <email>`.

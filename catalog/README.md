@@ -68,8 +68,8 @@ The catalog is published at `https://plugins.openpadel.dev/catalog.json`:
   with `gh release create plugin-<name>-v<version> plugins/<name>/dist/<name>-<version>.tar.gz --latest=false` after
   `pin`, so each `release.json` address answers with exactly those bytes. A new version is a new release; a published
   one is never replaced.
-- **A club's server** reads it when `KUMI_PLUGIN_CATALOG_URL` is unset, and the bundled sample
-  (packages/core/src/plugin_catalog.sample.json) when it can't reach it. A club that set `KUMI_PLUGIN_CATALOG_URL` to
+- **A club's server** reads it when `OPENPADEL_PLUGIN_CATALOG_URL` is unset, and the bundled sample
+  (packages/core/src/plugin_catalog.sample.json) when it can't reach it. A club that set `OPENPADEL_PLUGIN_CATALOG_URL` to
   another catalog keeps it, and `openpadel doctor` keeps warning that its catalog isn't openPadel's.
 - **The hosted plugins.** The catalog's manifests are remote ones that run at `https://<name>.plugins.openpadel.dev/v1`.
   Until openPadel runs those, clubs install them locally (`openpadel plugin service`) with the pinned release.

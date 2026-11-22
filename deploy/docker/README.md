@@ -9,7 +9,7 @@ Docker and Docker Compose and 2 GB of memory will do. The DNS records are the sa
 ```bash
 git clone https://github.com/onchainexpat/openpadel && cd openpadel
 git checkout "$(git tag --list 'v*' --sort=-v:refname | head -1)"   # the newest release, not main
-cp deploy/docker/env.example .env       # fill in KUMI_HOST and KUMI_DB_PASSWORD (openssl rand -hex 24)
+cp deploy/docker/env.example .env       # fill in OPENPADEL_HOST and OPENPADEL_DB_PASSWORD (openssl rand -hex 24)
 chmod 600 .env                          # it will hold every key the club has: only you read it
 mkdir -p config backups
 cp club.example.yaml config/club.yaml   # describe the club (docs/setup/README.md, step 4)
@@ -42,10 +42,10 @@ both, with every member's data. `docker compose down` (without `-v`) keeps them.
 
 ## Keys
 
-`.env` needs two keys, each 32 random bytes (`head -c 32 /dev/urandom | base64`): `KUMI_SECRET_KEY` seals
-the secrets openPadel keeps in its database (the server won't start without it), and `KUMI_BACKUP_KEY` seals the
+`.env` needs two keys, each 32 random bytes (`head -c 32 /dev/urandom | base64`): `OPENPADEL_SECRET_KEY` seals
+the secrets openPadel keeps in its database (the server won't start without it), and `OPENPADEL_BACKUP_KEY` seals the
 offsite copies. Keep a copy of both away from this machine, in a password manager. `update.sh` makes
-`KUMI_SECRET_KEY` for a setup from before it existed.
+`OPENPADEL_SECRET_KEY` for a setup from before it existed.
 
 ## Backups
 Every night at 3:17 on the club's clock (its time zone from setup, whatever the machine's or the containers'
@@ -82,7 +82,7 @@ to pgBackRest, at least once a minute while the club is busy, and the service ta
 - **on this machine** (the `pitr` volume), any minute of the last 14 days: the quick one, for mistakes;
 - **offsite**, once offsite backups are set up in `.env`, in the same bucket as the nightly copies
   (`kumi/pitr/<the cluster's id>/`), any minute of the last 30 days, sealed with a key made from
-  `KUMI_BACKUP_KEY`. pgBackRest deletes its own old pieces, so with `KUMI_OFFSITE_PRUNE=0` (a key that can't
+  `OPENPADEL_BACKUP_KEY`. pgBackRest deletes its own old pieces, so with `OPENPADEL_OFFSITE_PRUNE=0` (a key that can't
   delete) the offsite copy stays off and only this machine's runs; `openpadel doctor` says so.
 
 ```bash
@@ -107,9 +107,9 @@ The service runs as the Postgres image's own `postgres` user, with the database'
 Postgres's socket, so pgBackRest can read the files and ask Postgres for its backups. The club's database itself it
 opens as `kumi_app`, like the server, and a scratch copy's as whoever owns it there (never a superuser). The
 server's container sees none of it: not the socket, the archive or pgBackRest's settings (which hold the offsite
-key). `KUMI_PITR=0` in `.env`, then `docker compose up -d`, turns it off: Postgres lets its log go, as before.
+key). `OPENPADEL_PITR=0` in `.env`, then `docker compose up -d`, turns it off: Postgres lets its log go, as before.
 
-**After losing the machine:** set it up again with the old `KUMI_BACKUP_KEY` and the offsite settings, restore
+**After losing the machine:** set it up again with the old `OPENPADEL_BACKUP_KEY` and the offsite settings, restore
 `offsite:latest` (above), and then, to go to a later minute than that night's backup, take it from the old
 machine's archive, which is offsite in its own folder (`kumi/pitr/<id>/`; look in the bucket for the id):
 `docker compose exec pitr openpadel restore --to="2026-11-03 14:05" --archive=<id> --yes`, with `kumi` stopped.

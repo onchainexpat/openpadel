@@ -1,7 +1,8 @@
 # openPadel, for agents and people
 
 openPadel is free and open source padel software that runs a club (see `README.md`). It was called Kumi until
-7 November 2026: the `kumi` command still works, and settings, paths and packages keep their `kumi` names. This file is read by
+7 November 2026: setting names are `OPENPADEL_` (the old `KUMI_` ones are still read); paths (`/etc/kumi`, `/var/lib/kumi`),
+the `kumi` command and package names keep theirs. This file is read by
 coding agents such as Claude Code and Codex. There are two jobs, with their own rules:
 
 - **Setting up openPadel for a club** (an owner, or the owner's agent): clone over https, check out the newest
@@ -37,7 +38,7 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
 7. **Offsite backups before go-live** ([docs/setup/accounts/offsite-backups.md](docs/setup/accounts/offsite-backups.md)):
    the owner creates the storage and its key; you run `openpadel backup`, `openpadel offsite` and
    `openpadel restore-test` until `openpadel doctor` shows `offsite` and `restore_test` as `ok`. Ask the owner to
-   keep `KUMI_BACKUP_KEY` and `KUMI_SECRET_KEY` in a password manager, looking at them in their own
+   keep `OPENPADEL_BACKUP_KEY` and `OPENPADEL_SECRET_KEY` in a password manager, looking at them in their own
    terminal (or the server provider's web console); you never read them. `openpadel keys` shows only their last
    4 characters, for the owner to check their copies.
 8. **Updates go through `deploy/ship.sh`** (or `deploy/docker/update.sh`), which snapshot the database and

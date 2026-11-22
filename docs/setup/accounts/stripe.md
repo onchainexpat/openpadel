@@ -20,14 +20,14 @@ Stripe Billing subscription and no Billing fee on top.
 2. **Owner: copy the test keys** (Developers, then API keys, with "Test mode" on): the publishable
    key `pk_test_...` and the secret key `sk_test_...`. Type them into the server's settings file:
    ```
-   KUMI_STRIPE_SECRET_KEY=sk_test_...
-   KUMI_STRIPE_PUBLISHABLE_KEY=pk_test_...
+   OPENPADEL_STRIPE_SECRET_KEY=sk_test_...
+   OPENPADEL_STRIPE_PUBLISHABLE_KEY=pk_test_...
    ```
 3. **Owner: add the webhook** (Developers, then Webhooks, then Add endpoint):
    - URL: `https://staff.app.yourclub.com/webhooks/stripe`
    - Events: `payment_intent.succeeded`, `payment_intent.payment_failed`,
      `payment_intent.canceled` and `setup_intent.succeeded` (a card saved for a founding membership, or a family card)
-   - Then copy its signing secret into the settings file: `KUMI_STRIPE_WEBHOOK_SECRET=whsec_...`
+   - Then copy its signing secret into the settings file: `OPENPADEL_STRIPE_WEBHOOK_SECRET=whsec_...`
 
    Payments are also checked every 30 seconds, so a missed webhook never loses one; the webhook
    just makes it instant.

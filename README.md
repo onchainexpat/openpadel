@@ -68,7 +68,7 @@ docker run -d --rm --name kumi-dev-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.
 docker exec kumi-dev-pg createdb -U postgres kumi
 node apps/server/src/seed.ts                                   # a demo club, owner owner@kestrel.test
 # or instead of seed.ts: npm run openpadel -- setup apply club.example.yaml
-KUMI_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts   # API on 8790; emailed codes go to its log
+OPENPADEL_PUBLIC_URL=http://localhost:5173 node apps/server/src/main.ts   # API on 8790; emailed codes go to its log
 npm run dev -w @kumi/manager                                    # the staff app on http://localhost:5173
 npm run dev -w @kumi/member                                     # the members' app on http://localhost:5174
 npm test && npm run typecheck
@@ -88,10 +88,10 @@ Without a Resend key, emails (and sign-in codes) only go to the server's log. Wi
 club's own domain, which has to be verified in Resend first:
 
 ```bash
-KUMI_RESEND_API_KEY=re_… KUMI_MAIL_FROM="Kestrel Padel <hello@kestrelpadel.example>" node apps/server/src/main.ts
-# optional: KUMI_MAIL_REPLY_TO=desk@kestrelpadel.example
+OPENPADEL_RESEND_API_KEY=re_… OPENPADEL_MAIL_FROM="Kestrel Padel <hello@kestrelpadel.example>" node apps/server/src/main.ts
+# optional: OPENPADEL_MAIL_REPLY_TO=desk@kestrelpadel.example
 # outside production, only these get real email; everyone else's is held and logged:
-# KUMI_MAIL_TEST_TO=you@example.com,staff@example.com
+# OPENPADEL_MAIL_TEST_TO=you@example.com,staff@example.com
 ```
 
 ### Card payments (Stripe)
@@ -101,8 +101,8 @@ With a Stripe **test** key it takes real test-mode card payments through Stripe'
 (card details go from the browser to Stripe and never reach openPadel), and refunds go back to the card:
 
 ```bash
-KUMI_STRIPE_SECRET_KEY=sk_test_… KUMI_STRIPE_PUBLISHABLE_KEY=pk_test_… node apps/server/src/main.ts
-# optional: KUMI_STRIPE_WEBHOOK_SECRET=whsec_…  (Stripe's webhook, at /webhooks/stripe)
+OPENPADEL_STRIPE_SECRET_KEY=sk_test_… OPENPADEL_STRIPE_PUBLISHABLE_KEY=pk_test_… node apps/server/src/main.ts
+# optional: OPENPADEL_STRIPE_WEBHOOK_SECRET=whsec_…  (Stripe's webhook, at /webhooks/stripe)
 ```
 
 A live key (`sk_live_`) is refused unless `NODE_ENV=production`. A payment is recorded however the
@@ -114,7 +114,7 @@ any future date, any CVC. For webhooks locally: `stripe listen --forward-to 127.
 Payments are cards only. Apple Pay and Google Pay are cards underneath, so every payment refunds the
 same way, straight back to the card.
 
-**Stripe Connect, for Kumi, the hosted service** (`KUMI_STRIPE_CONNECT=1`; a club running openPadel
+**Stripe Connect, for Kumi, the hosted service** (`OPENPADEL_STRIPE_CONNECT=1`; a club running openPadel
 itself leaves it off and uses its own keys): the key is openPadel's platform key, and each
 club connects its own Stripe account from the manager's Payments page ("Connect with Stripe", then
 Stripe's own setup pages). Every payment is made on the club's account, so the money, the payouts,
@@ -153,8 +153,8 @@ It never writes to Playtomic. The club creates Third Party API keys in Playtomic
 plans include them) and the server reads them from its environment:
 
 ```bash
-KUMI_PLAYTOMIC_CLIENT_ID=… KUMI_PLAYTOMIC_SECRET=… KUMI_PLAYTOMIC_TENANT_ID=… node apps/server/src/main.ts
-# optional: KUMI_MIRROR_EVERY_MINUTES (10), KUMI_MIRROR_DAYS_AHEAD (30), KUMI_MIRROR_FAR_EVERY_HOURS (6), KUMI_MIRROR_PAGE_SECONDS (60)
+OPENPADEL_PLAYTOMIC_CLIENT_ID=… OPENPADEL_PLAYTOMIC_SECRET=… OPENPADEL_PLAYTOMIC_TENANT_ID=… node apps/server/src/main.ts
+# optional: OPENPADEL_MIRROR_EVERY_MINUTES (10), OPENPADEL_MIRROR_DAYS_AHEAD (30), OPENPADEL_MIRROR_FAR_EVERY_HOURS (6), OPENPADEL_MIRROR_PAGE_SECONDS (60)
 ```
 
 Then staff link each Playtomic court to an openPadel court on the manager's Playtomic page. What a
@@ -188,7 +188,7 @@ At 80% of the cap and at the cap the owner and managers hear once each. Past the
 it, what can wait waits until the 1st: no drafts, club news emails go when the month starts, and texts that
 can wait reach members in the app and by email instead. Answers from the club's facts, sign-in codes,
 confirmations and cancellations keep going, up to twice that, so a bill can pass the cap by cents but never
-run away. Prices are list prices unless `KUMI_PRICES` says otherwise (`docs/settings.md`).
+run away. Prices are list prices unless `OPENPADEL_PRICES` says otherwise (`docs/settings.md`).
 
 ### Support access, only when the owner gives it
 

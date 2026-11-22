@@ -35,13 +35,13 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
    ```bash
    git clone https://github.com/onchainexpat/openpadel && cd openpadel
    git checkout "$(git tag --list 'v*' --sort=-v:refname | head -1)"
-   ssh root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
+   ssh root@SERVER 'OPENPADEL_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
    deploy/ship.sh root@SERVER
    ```
    SSH options the server needs (a key file, a jump host, an ssh config) go where ssh takes them in the
    first command, and **after the target** for `ship.sh`, which passes them on to ssh:
    ```bash
-   ssh -i ~/.ssh/club -J admin@bastion.example root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
+   ssh -i ~/.ssh/club -J admin@bastion.example root@SERVER 'OPENPADEL_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
    deploy/ship.sh root@SERVER -i ~/.ssh/club -J admin@bastion.example     # or: deploy/ship.sh club-server -F ./ssh_config
    ```
    `server-setup.sh` installs a firewall, Postgres 17, Node 24, Caddy (which gets HTTPS
@@ -56,7 +56,7 @@ is about $12 a month at DigitalOcean, Hetzner, Vultr or Linode.
 For a trial before the club has its domain, skip the DNS records (step 2) and use the server's IP address
 with dashes, followed by `.sslip.io`, as the address: for a server at `203.0.113.7`,
 ```bash
-ssh root@SERVER 'KUMI_HOST=203-0-113-7.sslip.io bash -s' < deploy/server-setup.sh
+ssh root@SERVER 'OPENPADEL_HOST=203-0-113-7.sslip.io bash -s' < deploy/server-setup.sh
 ```
 sslip.io is a free public DNS service that answers any name with the IP written in it, `staff.` in front
 too, so the members' app is `https://203-0-113-7.sslip.io` and the staff app `https://staff.203-0-113-7.sslip.io`,
@@ -68,8 +68,8 @@ address names the server, changes if the server does, and depends on a service t
 2. **Agent:** change the two addresses in the settings file, without printing it, then set Caddy up for
    the new names (server-setup.sh is safe to run again) and restart:
    ```bash
-   ssh root@SERVER "sed -i 's#^KUMI_PUBLIC_URL=.*#KUMI_PUBLIC_URL=https://staff.app.yourclub.com#; s#^KUMI_MEMBER_URL=.*#KUMI_MEMBER_URL=https://app.yourclub.com#' /etc/kumi/kumi.env"
-   ssh root@SERVER 'KUMI_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
+   ssh root@SERVER "sed -i 's#^OPENPADEL_PUBLIC_URL=.*#OPENPADEL_PUBLIC_URL=https://staff.app.yourclub.com#; s#^OPENPADEL_MEMBER_URL=.*#OPENPADEL_MEMBER_URL=https://app.yourclub.com#' /etc/kumi/kumi.env"
+   ssh root@SERVER 'OPENPADEL_HOST=app.yourclub.com bash -s' < deploy/server-setup.sh
    ssh root@SERVER 'systemctl restart kumi && openpadel doctor'
    ```
 3. Everyone signs in again at the new address. Passkeys belong to an address, so staff set theirs up again

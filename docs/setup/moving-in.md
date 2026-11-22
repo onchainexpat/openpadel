@@ -34,7 +34,7 @@ and the staff decide. Going back to any step opens a finished move again.
 Choose where the club runs today. The step says what comes across by itself, what needs a file, and what never moves.
 
 - **Playtomic:** the Third Party API (Champion and Master plans) copies bookings on linked courts and keeps an archive;
-  the owner adds its three keys (`KUMI_PLAYTOMIC_CLIENT_ID`, `KUMI_PLAYTOMIC_SECRET`, `KUMI_PLAYTOMIC_TENANT_ID`) to
+  the owner adds its three keys (`OPENPADEL_PLAYTOMIC_CLIENT_ID`, `OPENPADEL_PLAYTOMIC_SECRET`, `OPENPADEL_PLAYTOMIC_TENANT_ID`) to
   `/etc/kumi/kumi.env` themselves ([accounts/playtomic.md](accounts/playtomic.md)); the step shows whether they're on
   the server and how the last copy went, never their values. The customer export brings the members in
   ([README.md, step 5b](README.md#step-5b-members)).
@@ -58,7 +58,7 @@ the credit brought over and the memberships carried over. Card details never mov
 
 ## 3. Practice run
 
-Keep practice mode on (`KUMI_PRACTICE=1`, [README.md, step 8](README.md#step-8-practice)): email and texts go only to
+Keep practice mode on (`OPENPADEL_PRACTICE=1`, [README.md, step 8](README.md#step-8-practice)): email and texts go only to
 the test addresses while staff try bookings, refunds and changes, and players stay on the old system. The step says
 whether it's on.
 
