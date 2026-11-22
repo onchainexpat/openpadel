@@ -16,7 +16,9 @@ import { hasSecondFactor, secondStepForChanges } from "./second_step.ts";
 
 /** How the person proved who they are: the strong-sign-in rule reads it. */
 /** "two_factor": an emailed code and then an authenticator or recovery code. */
-export type AuthMethod = "email_code" | "phone_code" | "passkey" | "two_factor" | "oauth" | "system";
+/** `device_step`: the owner's command line (`openpadel connect`), signed in on a device the owner allowed with a second step
+ *  minutes ago (service_routes.ts checks): as strong as the app's passkey or two steps, for the changes that need one. */
+export type AuthMethod = "email_code" | "phone_code" | "passkey" | "two_factor" | "oauth" | "system" | "device_step";
 export interface Actor { personId: string | null; agentId?: string | null; via: string; lang: Lang; auth?: AuthMethod; /** The assistant connection acting (the MCP door), whose weekly cap applies. */ grantId?: string | null;
   /** That connection is held to a member's reach until it's allowed again (assistant_reach.ts). */ memberOnly?: boolean }
 export type UndoKind = "reversible" | "compensating" | "none";
@@ -347,7 +349,7 @@ const how = (def: ActionDef<any>, actor: Actor) => ({ assistant: actor.auth === 
  *  hears so (error.second_step_to_change), and the apps offer to set one up there and then. */
 async function requireStrongAuth(db: Db | Trx, def: ActionDef<any>, actor: Actor, input: unknown): Promise<void> {
   if (actor.auth === "oauth" && appOnly(def, input)) throw new KumiError("error.assistant_in_app", {}, 403);
-  if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "two_factor" || actor.auth === "system") return;
+  if (!def.strongAuth || !actor.personId || actor.auth === "passkey" || actor.auth === "two_factor" || actor.auth === "system" || actor.auth === "device_step") return;
   // Any other way in (an emailed or texted code, anything new) is one step.
   if (!(await secondStepForChanges(db, actor.personId))) return;
   throw new KumiError((await hasSecondFactor(db, actor.personId)) ? "error.need_passkey" : "error.second_step_to_change", {}, 403);
