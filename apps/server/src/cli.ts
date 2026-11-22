@@ -55,8 +55,8 @@
 //   (on a one-server install, as root: kumi update <release.tar>, kumi rollback --yes, kumi releases)
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { both, money, t, pickLang, type Lang, type Text, formatLocale } from "@kumi/i18n";
-import { localPluginEnv, pluginVaultName, stageVaultUpload, type Manifest, connect, loadClubFormat, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
+import { both, money, t, pickLang, type Key, type Lang, type Text, formatLocale } from "@kumi/i18n";
+import { apply, serviceEnv, serviceOf, serviceStatus, SERVICES, stageServiceValue, localPluginEnv, pluginVaultName, stageVaultUpload, type Manifest, connect, loadClubFormat, dayText, heldSummary, KumiError, leavingStatus, localDate, migrate, monthOf, movedAway, plan, readOnlySince, resealAll, run, runAsSystem, secretKeyStatus, setSecretKeys, textingRegistration, usageMonth, USAGE_KINDS, type Db } from "@kumi/core";
 import { ExportRefused, exportHeader, importExport, isExportFile, makeExport, PASSPHRASE_MIN } from "./export.ts";
 import { backupKey, fetchOffsite, makeBackup, nightlyBackup, offsiteLatest, offsitePrefix, readableDump, readOpsRecords, RestoreFailed, restoreTest, safeRestore, scheduledDue, writeOpsRecords } from "./backups.ts";
 import { S3Client, s3FromEnv } from "./s3.ts";
@@ -71,6 +71,8 @@ import { twilioFromEnv } from "./twilio.ts";
 import { TwilioApi } from "./twilio_admin.ts";
 import { memberUrl } from "./addresses.ts";
 import { pitrMain, toArg } from "./pitr_cli.ts";
+import { parseConnect } from "./cli_remote.ts";
+import { serverConnectorLink } from "./service_routes.ts";
 import { afterRestore, readSentBefore, type AfterRestore, type KeepDeleted } from "./after_restore.ts";
 import { setting } from "@kumi/core";
 import { renameSettingsFile } from "./settings_file.ts";
@@ -140,7 +142,10 @@ async function main(): Promise<number> {
   // A plugin's key typed on the server, and a local plugin's service, are the server's; the other plugin commands are
   // the club's own (cli_remote.ts).
   const serverPlugin = first === "plugin" && (sub === "secret" || sub === "service");
-  if (first !== undefined && !ON_SERVER.has(first) && !serverPlugin) {
+  // A service's settings: on the server (its settings file loaded, so DATABASE_URL is there) as root, against the
+  // database; anywhere else, as the owner signed in (cli_remote.ts). --remote asks the signed-in club from the server too.
+  const serverConnect = first === "connect" && Boolean(process.env.DATABASE_URL) && !args.includes("--remote");
+  if (first !== undefined && !ON_SERVER.has(first) && !serverPlugin && !serverConnect) {
     const { remoteMain } = await import("./cli_remote.ts");
     return remoteMain(args);
   }
@@ -208,7 +213,7 @@ async function main(): Promise<number> {
       if (!owner) { console.error(t(lang, "doctor.club.missing")); return 2; }
       if (sub === "players") {
         const { PlaytomicClient, readPlaytomicPlayers } = await import("@kumi/core");
-        const e = process.env;
+        const e = await serviceEnv(db);   // the keys from the settings file, or set in the app
         if (!setting("PLAYTOMIC_CLIENT_ID", e) || !setting("PLAYTOMIC_SECRET", e) || !setting("PLAYTOMIC_TENANT_ID", e)) { console.error(t(lang, "cli.move_in_no_keys")); return 2; }
         const client = new PlaytomicClient({ clientId: setting("PLAYTOMIC_CLIENT_ID", e)!, secret: setting("PLAYTOMIC_SECRET", e)!, tenantId: setting("PLAYTOMIC_TENANT_ID", e)!, pageDelayMs: Number(setting("MIRROR_PAGE_SECONDS", e) ?? 60) * 1000 });
         if (!json) console.log(t(lang, "cli.move_in_reading"));
@@ -697,6 +702,7 @@ async function main(): Promise<number> {
     console.log(t(lang, "cli.settings_rename_done", { backup: r.backup! }));
     return 0;
   }
+  if (cmd === "connect") return connectOnServer(args.slice(args.indexOf("connect") + 1).filter((a) => a !== "--json" && !a.startsWith("--lang=")));
   if (cmd === "keys") {
     const keys = (["OPENPADEL_SECRET_KEY", "OPENPADEL_BACKUP_KEY"] as const).map((name) => {
       const v = setting(name)?.trim().replace(/=+$/, "");
@@ -854,3 +860,70 @@ async function importClub(path: string): Promise<number> {
 }
 
 process.exitCode = await main();
+
+/** `openpadel connect` on the server, as root (service_settings.ts): the same preview and the same action as the app's
+ *  form, as the owner (setup's actor). A value only ever from what's piped in or an environment variable. */
+async function connectOnServer(words: string[]): Promise<number> {
+  const c = parseConnect(words);
+  serverKeys();   // what it seals into the vault, it seals with the server's key
+  const fail = (key: Key, params: Record<string, string> = {}, code = 2) => { if (json) out({ status: "error", code: key, message: t(lang, key, params) }); else console.error(t(lang, key, params)); return code; };
+  if ("refuse" in c) return fail(c.refuse as Key, c.params);
+  const db = await clubDb();
+  try {
+    const actor = await ownerActor(db, lang);
+    if (!actor) return fail("error.service_owner_only", {}, 1);
+    const via = { ...actor, via: "cli:server" };
+    const line = (x: Awaited<ReturnType<typeof serviceStatus>>[number]) => !x.set ? t(lang, "cli.connect_not_set", { name: x.name })
+      : x.secret ? t(lang, x.last4 ? "cli.connect_set_ending" : "cli.connect_set", { name: x.name, last4: x.last4 ?? "", where: t(lang, x.source === "app" ? "cli.connect_in_app" : "cli.connect_on_server") })
+      : t(lang, "cli.connect_set_value", { name: x.name, value: x.value ?? "", where: t(lang, x.source === "app" ? "cli.connect_in_app" : "cli.connect_on_server") });
+    if (c.confirm) {
+      const run = await db.selectFrom("action_run").select("action").where("id", "=", c.confirm).executeTakeFirst();
+      if (!run || (run.action !== "vault.service_set" && run.action !== "vault.service_remove")) return fail("error.not_found", { thing: t(lang, "thing.change") }, 4);
+      const result = await apply(db, c.confirm, via);
+      if (json) out({ status: "applied", run_id: c.confirm, result }); else console.log(t(lang, "cli.connect_done"));
+      return 0;
+    }
+    if (!c.service) {
+      const all = await Promise.all(SERVICES.map(async (s) => ({ service: s.key, settings: await serviceStatus(db, s.key) })));
+      if (json) out({ status: "ok", data: { services: all } }); else for (const s of all) console.log(`${s.service}: ${s.settings.map(line).join("; ")}`);
+      return 0;
+    }
+    serviceOf(c.service);
+    if (c.link) {
+      const r = await serverConnectorLink(db, setting("PUBLIC_URL") ?? "http://127.0.0.1:8790", c.service);
+      if (json) out({ status: "ok", link: r.link, expires_at: r.expires_at }); else { console.log(t(lang, "cli.connect_link", { minutes: r.minutes })); console.log(`  ${r.link}`); }
+      return 0;
+    }
+    if (!c.set.length && !c.remove) {
+      const st = await serviceStatus(db, c.service);
+      if (json) out({ status: "ok", data: { service: c.service, settings: st } }); else for (const x of st) console.log(`  ${line(x)}`);
+      return 0;
+    }
+    let input: Record<string, unknown>;
+    if (c.remove) input = { service: c.service, ...(c.remove === true ? {} : { fields: c.remove }) };
+    else {
+      const values = [];
+      for (const x of c.set) {
+        const raw = x.from === "stdin" ? await readAll() : process.env[x.from] ?? "";
+        if (!raw.trim()) return fail(x.from === "stdin" ? "cli.connect_stdin_empty" : "cli.connect_env_empty", { name: x.from });
+        values.push(await stageServiceValue(db, actor.personId!, c.service, x.field, raw));
+      }
+      input = { service: c.service, values: values.map((v) => ({ field: v.field, upload_id: v.upload_id })) };
+    }
+    const p = await plan(db, c.remove ? "vault.service_remove" : "vault.service_set", input, via);
+    const next = `openpadel connect --confirm ${p.runId}`;
+    if (json) out({ status: "preview", run_id: p.runId, title: p.plan.title[lang], summary: p.plan.summary[lang], expires_at: p.expiresAt, next });
+    else { console.log(p.plan.summary[lang]); console.log(""); console.log(t(lang, "cli.connect_confirm_next", { command: next })); }
+    return 10;
+  } catch (e) {
+    if (e instanceof KumiError) { if (json) out({ status: "error", code: e.code, message: e.text[lang] }); else console.error(e.text[lang]); return e.status === 404 ? 4 : e.status === 403 ? 3 : 2; }
+    throw e;
+  } finally { await db.destroy(); }
+}
+/** Everything piped in (a value from a password manager), never echoed. */
+async function readAll(): Promise<string> {
+  if (process.stdin.isTTY) return "";
+  let data = "";
+  for await (const chunk of process.stdin) data += String(chunk);
+  return data.replace(/\r?\n$/, "");
+}

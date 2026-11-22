@@ -112,6 +112,26 @@ class Club {
     });
   }
 
+  /** One of the club's command-line routes beside the door (/mcp/connect, service_routes.ts), as the person; a sign-in
+   *  that ran out is renewed once. A failure is the club's own words, with its key and status. */
+  async api(method: "GET" | "POST", path: string, body: unknown, lang: Lang): Promise<any> {
+    const send = async (token: string) => {
+      try {
+        return await this.d.fetch(`${this.e.resource.replace(/\/$/, "")}${path}`, { method, headers: { authorization: `Bearer ${token}`, accept: "application/json", "accept-language": lang,
+          ...(body === undefined ? {} : { "content-type": "application/json" }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      } catch (e) { throw stop(EXIT.unreachable, "cli.unreachable", { club: this.e.club_name, why: (e as Error).message }); }
+    };
+    let res = await send(await this.token());
+    if (res.status === 401) res = await send(await this.token(true));
+    if (res.status === 401) throw stop(EXIT.signed_out, "cli.signed_out", { club: this.e.club_name, url: this.e.url });
+    const b = await res.json().catch(() => null) as any;
+    if (!res.ok) {
+      const key = typeof b?.error === "string" ? b.error : "cli.failed", words = typeof b?.message === "string" ? b.message : `HTTP ${res.status}`;
+      throw new Stop(exitOf(key, res.status === 403 ? 403 : res.status), key, { en: words, es: words });
+    }
+    return b;
+  }
+
   /** One of the door's tools, called as the person; a sign-in that ran out is renewed once. */
   async call(tool: string, args: Record<string, unknown>): Promise<Answer> {
     const send = async (token: string) => {
@@ -174,6 +194,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     if (word === "logout") return await logout(need());
     if (word === "whoami") return await whoami(need());
     if (word === "confirm") return await confirm(need(), more[0]);
+    if (word === "connect") return await connect(more);
     // The command and its flags are checked before the sign-in, so a mistake in them says so first.
     const found = word === "do" ? (() => { const cmd = commands().find((c) => c.action === more[0]); return cmd ? { cmd, rest: more.slice(1) } : null; })() : findCommand(rest);
     if (!found) return refuseUnknown(word === "do" ? [...String(more[0] ?? "").split("."), ...more.slice(1)] : rest);
@@ -203,6 +224,58 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     const name = actionNamed(words), def = name ? catalogueAction(name) : null;
     if (def && appOnly(def)) return fail(stop(EXIT.app_only, "cli.app_only", { what: both(`action.${def.name}` as Key) }));
     return fail(stop(EXIT.usage, "cli.unknown_command", { words: words.filter((w) => !w.startsWith("--")).slice(0, 3).join(" ") }));
+  }
+
+  // ---- A service's settings (service_routes.ts): never a value on the command line, never one printed ----
+  async function connect(args: string[]): Promise<number> {
+    const c = parseConnect(args);
+    if ("refuse" in c) throw stop(EXIT.usage, c.refuse as Key, c.params ?? {});
+    const club = need();
+    if (c.confirm) {
+      const r = await club.api("POST", "/connect/confirm", { run_id: c.confirm }, lang);
+      if (g.json) emit({ status: "applied", run_id: c.confirm, result: r.result ?? null }); else d.out(say("cli.connect_done"));
+      return EXIT.done;
+    }
+    if (!c.service) {
+      const r = await club.api("GET", "/connect", undefined, lang);
+      if (g.json) { emit({ status: "ok", data: r }); return EXIT.done; }
+      for (const s of r.services as { service: string; settings: Shown[] }[]) d.out(`${s.service}: ${s.settings.map((x) => shown(x)).join("; ")}`);
+      return EXIT.done;
+    }
+    if (c.link) {
+      const r = await club.api("POST", `/connect/${c.service}/link`, {}, lang);
+      if (g.json) emit({ status: "ok", link: r.link, expires_at: r.expires_at }); else { d.out(say("cli.connect_link", { minutes: r.minutes })); d.out(`  ${r.link}`); }
+      return EXIT.done;
+    }
+    if (!c.set.length && !c.remove) {
+      const r = await club.api("GET", "/connect", undefined, lang);
+      const one = (r.services as { service: string; settings: Shown[] }[]).find((x) => x.service === c.service);
+      if (!one) throw stop(EXIT.not_found, "error.service_unknown", { service: c.service });
+      if (g.json) { emit({ status: "ok", data: one }); return EXIT.done; }
+      for (const x of one.settings) d.out(`  ${shown(x)}`);
+      return EXIT.done;
+    }
+    // The values, read from what's piped in or an environment variable only. Each goes to the club once, over https, to
+    // be sealed in its vault; nothing here keeps or prints it.
+    const set: { field: string; value: string }[] = [];
+    for (const x of c.set) {
+      const value = x.from === "stdin" ? await readStdin() : d.env[x.from] ?? "";
+      if (!value.trim()) throw stop(EXIT.usage, x.from === "stdin" ? "cli.connect_stdin_empty" : "cli.connect_env_empty", { name: x.from });
+      set.push({ field: x.field, value: value.replace(/\r?\n$/, "") });
+    }
+    const p = await club.api("POST", `/connect/${c.service}/plan`, c.remove ? { remove: c.remove === true ? [] : c.remove } : { set }, lang);
+    set.length = 0;
+    const next = `${COMMAND} connect --confirm ${p.run_id}`;
+    if (g.json) emit({ status: "preview", run_id: p.run_id, title: p.title, summary: p.summary, expires_at: p.expires_at, next });
+    else { d.out(p.summary); d.out(""); d.out(say("cli.connect_confirm_next", { command: next })); }
+    return EXIT.preview;
+  }
+  type Shown = { name: string; set: boolean; source: "server" | "app" | null; secret: boolean; last4?: string | null; value?: string | null };
+  function shown(x: Shown): string {
+    if (!x.set) return say("cli.connect_not_set", { name: x.name });
+    const where = say(x.source === "app" ? "cli.connect_in_app" : "cli.connect_on_server");
+    return x.secret ? (x.last4 ? say("cli.connect_set_ending", { name: x.name, last4: x.last4, where }) : say("cli.connect_set", { name: x.name, where }))
+      : say("cli.connect_set_value", { name: x.name, value: x.value ?? "", where });
   }
 
   // ---- Help, and each command's schema ----
@@ -561,4 +634,42 @@ async function readStdin(): Promise<string> {
   let s = "";
   for await (const chunk of process.stdin) s += String(chunk);
   return s;
+}
+
+/** `openpadel connect`'s words: a service, then --set FIELD with --from-stdin or --from-env NAME (repeatable, one
+ *  --from-stdin at most), --remove FIELD (or --remove-all), --link, or --confirm <run>. A value given on the command
+ *  line itself (--set api_key=re_..., or a word after the field) is refused: the shell's history and the process
+ *  list would keep it. */
+export function parseConnect(args: string[]):
+  { service: string | null; set: { field: string; from: string }[]; remove: string[] | true | null; link: boolean; confirm: string | null } | { refuse: string; params?: Record<string, string> } {
+  const out = { service: null as string | null, set: [] as { field: string; from: string }[], remove: null as string[] | true | null, link: false, confirm: null as string | null };
+  let stdin = 0;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--set" || a.startsWith("--set=")) {
+      const field = a === "--set" ? args[++i] : a.slice(6);
+      if (!field || field.startsWith("--")) return { refuse: "cli.connect_set_how" };
+      if (field.includes("=")) return { refuse: "cli.connect_no_argv" };
+      const how = args[++i];
+      if (how === "--from-stdin") { if (++stdin > 1) return { refuse: "cli.connect_one_stdin" }; out.set.push({ field, from: "stdin" }); continue; }
+      if (how === "--from-env" || how?.startsWith("--from-env=")) {
+        const name = how === "--from-env" ? args[++i] : how.slice(11);
+        if (!name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return { refuse: "cli.connect_set_how" };
+        out.set.push({ field, from: name }); continue;
+      }
+      // A value typed after the field, or nothing at all: never taken from the command line.
+      return { refuse: how && !how.startsWith("--") ? "cli.connect_no_argv" : "cli.connect_set_how" };
+    }
+    if (a === "--from-stdin" || a === "--from-env" || a.startsWith("--from-env=") || a === "--value" || a.startsWith("--value=")) return { refuse: a.startsWith("--value") ? "cli.connect_no_argv" : "cli.connect_set_how" };
+    if (a === "--remove") { const f = args[++i]; if (!f || f.startsWith("--")) return { refuse: "cli.connect_set_how" }; out.remove = [...(Array.isArray(out.remove) ? out.remove : []), f]; continue; }
+    if (a === "--remove-all") { out.remove = true; continue; }
+    if (a === "--link") { out.link = true; continue; }
+    if (a === "--confirm") { const id = args[++i]; if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return { refuse: "cli.connect_set_how" }; out.confirm = id; continue; }
+    if (a.startsWith("--")) return { refuse: "cli.connect_set_how" };
+    if (out.service) return { refuse: "cli.connect_no_argv" };
+    out.service = a.toLowerCase();
+  }
+  if ((out.set.length ? 1 : 0) + (out.remove ? 1 : 0) + (out.link ? 1 : 0) > 1) return { refuse: "cli.connect_set_how" };
+  if ((out.set.length || out.remove || out.link) && !out.service) return { refuse: "cli.connect_set_how" };
+  return out;
 }
