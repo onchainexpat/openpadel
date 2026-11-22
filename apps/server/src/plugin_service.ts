@@ -15,11 +15,12 @@ import { tmpdir } from "node:os";
 import { clubNetworkField, ipKind, type Manifest } from "@kumi/core";
 import { isIP } from "node:net";
 import { pluginRequest } from "./plugins.ts";
+import { setting } from "@kumi/core";
 
 export const RELEASE_MAX_BYTES = 200_000_000;
 export interface ServicePaths { root: string; envDir: string; unitDir: string }
 export const servicePaths = (env: Record<string, string | undefined> = process.env): ServicePaths => ({
-  root: env.KUMI_PLUGIN_ROOT ?? "/opt/openpadel-plugins", envDir: env.KUMI_PLUGIN_ENV_DIR ?? "/etc/kumi/plugins", unitDir: env.KUMI_PLUGIN_UNIT_DIR ?? "/etc/systemd/system" });
+  root: setting("PLUGIN_ROOT", env) ?? "/opt/openpadel-plugins", envDir: setting("PLUGIN_ENV_DIR", env) ?? "/etc/kumi/plugins", unitDir: setting("PLUGIN_UNIT_DIR", env) ?? "/etc/systemd/system" });
 export const unitName = (name: string) => `openpadel-plugin-${name}.service`;
 
 /** The release, fetched and checked against its fingerprint: refused, and nothing kept, if it differs. */

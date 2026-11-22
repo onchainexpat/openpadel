@@ -49,7 +49,7 @@ test("offsite copies are sealed with the backup key; a wrong key or a damaged fi
   const sealed = sealBackup(dump, key);
   assert.ok(!sealed.includes(dump));
   assert.deepEqual(openBackup(sealed, key), dump);
-  assert.throws(() => openBackup(sealed, Buffer.alloc(32, 4)), /doesn't open with KUMI_BACKUP_KEY/);
+  assert.throws(() => openBackup(sealed, Buffer.alloc(32, 4)), /doesn't open with OPENPADEL_BACKUP_KEY/);
   sealed[sealed.length - 1]! ^= 1;
   assert.throws(() => openBackup(sealed, key), /doesn't open/);
 });

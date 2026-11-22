@@ -1,11 +1,12 @@
 // The club's own Twilio account, for texts (texts.ts). Its keys come from the environment, never the database
-// or the code: KUMI_TWILIO_ACCOUNT_SID and KUMI_TWILIO_AUTH_TOKEN. Who texts are from: a Messaging Service
-// (KUMI_TWILIO_MESSAGING_SERVICE_SID, Twilio's advice) or one number (KUMI_TWILIO_FROM); without either, the
+// or the code: OPENPADEL_TWILIO_ACCOUNT_SID and OPENPADEL_TWILIO_AUTH_TOKEN. Who texts are from: a Messaging Service
+// (OPENPADEL_TWILIO_MESSAGING_SERVICE_SID, Twilio's advice) or one number (OPENPADEL_TWILIO_FROM); without either, the
 // Messaging Service `kumi texting` registered, once Twilio approves it (texting.ts). No sender, no texts.
 // Everything Twilio posts back (texts to the club's number, delivery reports) is signed with the auth token,
 // and anything unsigned or signed wrong is refused.
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { TextError, type Texter, type TextOut } from "@kumi/core";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -14,14 +15,14 @@ export interface TwilioConfig { accountSid: string; authToken: string; messaging
 /** The settings, or null when texts aren't set up; an error when they're set up wrong. Who texts are from may
  *  be missing: the registration (texting.ts) gives it once approved. */
 export function twilioFromEnv(env: Env): TwilioConfig | null {
-  const accountSid = env.KUMI_TWILIO_ACCOUNT_SID?.trim(), authToken = env.KUMI_TWILIO_AUTH_TOKEN?.trim();
-  const messagingServiceSid = env.KUMI_TWILIO_MESSAGING_SERVICE_SID?.trim() || undefined, from = env.KUMI_TWILIO_FROM?.trim() || undefined;
+  const accountSid = setting("TWILIO_ACCOUNT_SID", env)?.trim(), authToken = setting("TWILIO_AUTH_TOKEN", env)?.trim();
+  const messagingServiceSid = setting("TWILIO_MESSAGING_SERVICE_SID", env)?.trim() || undefined, from = setting("TWILIO_FROM", env)?.trim() || undefined;
   if (!accountSid && !authToken) return null;
-  if (!accountSid || !authToken) throw new Error("KUMI_TWILIO_ACCOUNT_SID and KUMI_TWILIO_AUTH_TOKEN go together");
-  if (!/^AC[0-9a-f]{32}$/.test(accountSid)) throw new Error("KUMI_TWILIO_ACCOUNT_SID should look like AC followed by 32 letters and digits");
-  if (!/^[0-9a-f]{32}$/.test(authToken)) throw new Error("KUMI_TWILIO_AUTH_TOKEN should be 32 letters and digits");
-  if (messagingServiceSid && !/^MG[0-9a-f]{32}$/.test(messagingServiceSid)) throw new Error("KUMI_TWILIO_MESSAGING_SERVICE_SID should look like MG followed by 32 letters and digits");
-  if (from && !/^\+\d{8,15}$/.test(from)) throw new Error("KUMI_TWILIO_FROM should be a number like +15035550123");
+  if (!accountSid || !authToken) throw new Error("OPENPADEL_TWILIO_ACCOUNT_SID and OPENPADEL_TWILIO_AUTH_TOKEN go together");
+  if (!/^AC[0-9a-f]{32}$/.test(accountSid)) throw new Error("OPENPADEL_TWILIO_ACCOUNT_SID should look like AC followed by 32 letters and digits");
+  if (!/^[0-9a-f]{32}$/.test(authToken)) throw new Error("OPENPADEL_TWILIO_AUTH_TOKEN should be 32 letters and digits");
+  if (messagingServiceSid && !/^MG[0-9a-f]{32}$/.test(messagingServiceSid)) throw new Error("OPENPADEL_TWILIO_MESSAGING_SERVICE_SID should look like MG followed by 32 letters and digits");
+  if (from && !/^\+\d{8,15}$/.test(from)) throw new Error("OPENPADEL_TWILIO_FROM should be a number like +15035550123");
   return { accountSid, authToken, ...(messagingServiceSid ? { messagingServiceSid } : {}), ...(from ? { from } : {}) };
 }
 

@@ -158,7 +158,7 @@ test("an offsite copy that fails is recorded, and the owner and managers are tol
   const told = await db.selectFrom("event_outbox").select("topic").where("topic", "=", "ops.failed").execute();
   assert.equal(told.length, 1);
   // Without the backup key, nothing goes offsite.
-  await assert.rejects(nightlyBackup(db, { url, dir, s3: bad, env: { ...env, KUMI_BACKUP_KEY: "" }, now: NOW }), /KUMI_BACKUP_KEY isn't set/);
+  await assert.rejects(nightlyBackup(db, { url, dir, s3: bad, env: { ...env, KUMI_BACKUP_KEY: "" }, now: NOW }), /OPENPADEL_BACKUP_KEY isn't set/);
 });
 
 test("comparing counts: exact against a manifest, loose against the live database", () => {

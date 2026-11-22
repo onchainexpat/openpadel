@@ -9,9 +9,9 @@
 // Two copies of the archive ("repositories"):
 //   1. on this server (/var/lib/pgbackrest): the quick one, for mistakes, the common case;
 //   2. offsite, beside the nightly dumps (<prefix>pitr/ in the same bucket), sealed with a key derived from
-//      KUMI_BACKUP_KEY, so the key the owner already keeps opens it too, and it survives losing the server.
+//      OPENPADEL_BACKUP_KEY, so the key the owner already keeps opens it too, and it survives losing the server.
 // pgBackRest expires old backups and WAL itself, so the key it uses offsite must be able to delete: with
-// KUMI_OFFSITE_PRUNE=0 (a key that can't), the offsite archive stays off and only the local one runs.
+// OPENPADEL_OFFSITE_PRUNE=0 (a key that can't), the offsite archive stays off and only the local one runs.
 //
 // Restoring goes through a scratch copy: pgBackRest recovers the archive into a folder of its own, a private
 // Postgres starts on it and stops replaying at the chosen minute, the club's database is dumped from it, and that
@@ -25,6 +25,7 @@ import { join } from "node:path";
 import { sql, type Kysely } from "kysely";
 import { atLocal, localParts } from "@kumi/core";
 import { s3FromEnv } from "./s3.ts";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 
@@ -51,13 +52,13 @@ export const DEFAULT_PATHS: PitrPaths = {
  *  superuser are the Postgres image's). */
 export const pitrPaths = (env: Env): PitrPaths => ({
   ...DEFAULT_PATHS,
-  ...(env.KUMI_PITR_PG_PATH?.trim() ? { pgPath: env.KUMI_PITR_PG_PATH.trim() } : {}),
-  ...(env.KUMI_PITR_PG_SOCKET?.trim() ? { socket: env.KUMI_PITR_PG_SOCKET.trim() } : {}),
-  ...(env.KUMI_PG_BIN?.trim() ? { pgBin: env.KUMI_PG_BIN.trim() } : {}),
-  ...(env.KUMI_PITR_PG_USER?.trim() ? { superuser: env.KUMI_PITR_PG_USER.trim() } : {}),
+  ...(setting("PITR_PG_PATH", env)?.trim() ? { pgPath: setting("PITR_PG_PATH", env)!.trim() } : {}),
+  ...(setting("PITR_PG_SOCKET", env)?.trim() ? { socket: setting("PITR_PG_SOCKET", env)!.trim() } : {}),
+  ...(setting("PG_BIN", env)?.trim() ? { pgBin: setting("PG_BIN", env)!.trim() } : {}),
+  ...(setting("PITR_PG_USER", env)?.trim() ? { superuser: setting("PITR_PG_USER", env)!.trim() } : {}),
 });
 
-/** The passphrase the offsite archive is sealed with: from KUMI_BACKUP_KEY, so the key that opens the nightly
+/** The passphrase the offsite archive is sealed with: from OPENPADEL_BACKUP_KEY, so the key that opens the nightly
  *  offsite copies opens this too, and nothing new needs keeping. */
 export function pitrCipherPass(backupKey: Buffer): string {
   return createHmac("sha256", backupKey).update("kumi point-in-time archive v1").digest("base64url");
@@ -71,13 +72,13 @@ export interface PitrConfig { text: string; repos: PitrRepo[]; offsite: "on" | "
 /** The offsite archive's folder: one per Postgres cluster (its system id), so a server set up again after losing
  *  the old one starts an archive of its own beside the old one's, which stays there to go back into. */
 export const offsiteArchivePath = (env: Env, systemId?: string | null) => {
-  const prefix = (env.KUMI_OFFSITE_PREFIX ?? "kumi/").replace(/^\/+/, "").replace(/\/?$/, "/");
+  const prefix = (setting("OFFSITE_PREFIX", env) ?? "kumi/").replace(/^\/+/, "").replace(/\/?$/, "/");
   return `/${prefix}pitr${systemId ? `/${systemId}` : ""}`;
 };
 
 export function pitrConf(env: Env, o: { backupKey: Buffer | null; paths?: PitrPaths; stanza?: string; localDays?: number; offsiteDays?: number; systemId?: string | null } ): PitrConfig {
   const p = o.paths ?? DEFAULT_PATHS, stanza = o.stanza ?? STANZA;
-  const s3 = s3FromEnv(env), prunes = env.KUMI_OFFSITE_PRUNE?.trim() !== "0";
+  const s3 = s3FromEnv(env), prunes = setting("OFFSITE_PRUNE", env)?.trim() !== "0";
   let offsite: PitrConfig["offsite"] = "off";
   let endpoint: URL | null = null;
   if (s3) {
@@ -389,7 +390,7 @@ export async function pitrTestRun(live: Kysely<any>, dbname: string, info: Archi
   return { ok: problems.length === 0, target: target.toISOString(), seconds: Math.round((Date.now() - t0) / 1000), problems, kept };
 }
 
-/** Where scratch copies go: KUMI_PITR_SCRATCH (Docker's pitr service: a volume of its own, since the cluster's folder
+/** Where scratch copies go: OPENPADEL_PITR_SCRATCH (Docker's pitr service: a volume of its own, since the cluster's folder
  *  is mounted read-only there), else beside the cluster (the postgres user's), else the temporary folder. */
 export const scratchBase = (paths: PitrPaths = DEFAULT_PATHS, env: Env = {}) =>
-  env.KUMI_PITR_SCRATCH?.trim() || (existsSync(join(paths.pgPath, "..")) ? join(paths.pgPath, "..") : tmpdir());
+  setting("PITR_SCRATCH", env)?.trim() || (existsSync(join(paths.pgPath, "..")) ? join(paths.pgPath, "..") : tmpdir());

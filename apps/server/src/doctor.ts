@@ -13,6 +13,7 @@ import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { VERSION } from "./version.ts";
 import { pluginsHealth } from "./plugins.ts";
+import { setting } from "@kumi/core";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
 export interface Check { id: string; state: CheckState; text: Text; doc?: string;
@@ -23,8 +24,8 @@ type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fetch; now?: Date; resolveTxt?: (name: string) => Promise<string[][]> } = {}): Promise<Check[]> {
   const checks: Check[] = [], now = deps.now ?? new Date(), production = env.NODE_ENV === "production";
-  // Docker installs (the image sets KUMI_INSTALL=docker) run backups from a service, not systemd timers.
-  const docker = env.KUMI_INSTALL === "docker", opsDoc = docker ? "deploy/docker/README.md" : "deploy/README.md", d = docker ? "_docker" : "";
+  // Docker installs (the image sets OPENPADEL_INSTALL=docker) run backups from a service, not systemd timers.
+  const docker = setting("INSTALL", env) === "docker", opsDoc = docker ? "deploy/docker/README.md" : "deploy/README.md", d = docker ? "_docker" : "";
   const add = (id: string, state: CheckState, key: string, params: Params = {}, doc?: string) =>
     checks.push({ id, state, text: both(`doctor.${key}` as Key, params), key, ...(doc ? { doc } : {}) });
   add("version", "ok", "version", { version: VERSION });
@@ -67,45 +68,45 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
       add(id, r.ok ? "ok" : "fail", r.ok ? `${id}.ok` : `${id}.down`, { url, error: `HTTP ${r.status}` }, r.ok ? undefined : "docs/setup/accounts/server.md");
     } catch (e) { add(id, "fail", `${id}.down`, { url, error: (e as Error).message }, "docs/setup/accounts/server.md"); }
   };
-  const url = env.KUMI_PUBLIC_URL;
+  const url = setting("PUBLIC_URL", env);
   if (!url) add("address", production ? "fail" : "warn", "address.unset", {}, "docs/setup/accounts/server.md");
   else {
     await reach("address", url);
     // The members' app's address, which the links members are sent use: checked too, when it isn't the same one.
     let members: string | null = null;
-    try { members = memberUrl(url, env); } catch { /* KUMI_PUBLIC_URL isn't an address: the check above says so */ }
+    try { members = memberUrl(url, env); } catch { /* OPENPADEL_PUBLIC_URL isn't an address: the check above says so */ }
     if (members && members !== url.replace(/\/$/, "")) await reach("members_address", members);
   }
 
   // Email: without it, sign-in codes and messages only reach the server's log.
   // Live (production, out of practice) with no email: the server refuses to start, since sign-in codes would only
   // reach the log, where anyone who can read it could sign in as any member.
-  if (!env.KUMI_RESEND_API_KEY) add("email", production && env.KUMI_PRACTICE !== "1" ? "fail" : production ? "warn" : "off", production && env.KUMI_PRACTICE !== "1" ? "email.off_live" : "email.off", {}, "docs/setup/accounts/resend.md");
-  else if (!env.KUMI_MAIL_FROM) add("email", "fail", "email.no_from", {}, "docs/setup/accounts/resend.md");
-  else if (!production || env.KUMI_PRACTICE === "1") add("email", "warn", "email.practice", { from: env.KUMI_MAIL_FROM, count: (env.KUMI_MAIL_TEST_TO ?? "").split(",").filter((a) => a.trim()).length });
-  else add("email", "ok", "email.ok", { from: env.KUMI_MAIL_FROM });
-  // Practice mode (KUMI_PRACTICE=1, the default on a new server; always outside production): real email only to the test
+  if (!setting("RESEND_API_KEY", env)) add("email", production && setting("PRACTICE", env) !== "1" ? "fail" : production ? "warn" : "off", production && setting("PRACTICE", env) !== "1" ? "email.off_live" : "email.off", {}, "docs/setup/accounts/resend.md");
+  else if (!setting("MAIL_FROM", env)) add("email", "fail", "email.no_from", {}, "docs/setup/accounts/resend.md");
+  else if (!production || setting("PRACTICE", env) === "1") add("email", "warn", "email.practice", { from: setting("MAIL_FROM", env)!, count: (setting("MAIL_TEST_TO", env) ?? "").split(",").filter((a) => a.trim()).length });
+  else add("email", "ok", "email.ok", { from: setting("MAIL_FROM", env)! });
+  // Practice mode (OPENPADEL_PRACTICE=1, the default on a new server; always outside production): real email only to the test
   // addresses, texts only to the test numbers. Said while it's on, so an agent setting up a club sees it stays until go-live.
-  const practice = !production || env.KUMI_PRACTICE === "1";
-  const testTo = (env.KUMI_MAIL_TEST_TO ?? "").split(",").filter((a) => a.trim()).length;
+  const practice = !production || setting("PRACTICE", env) === "1";
+  const testTo = (setting("MAIL_TEST_TO", env) ?? "").split(",").filter((a) => a.trim()).length;
   if (!practice) add("practice", "ok", "practice.off");
-  else if (!env.KUMI_RESEND_API_KEY) add("practice", "warn", "practice.on_log", {}, "docs/setup/README.md");
+  else if (!setting("RESEND_API_KEY", env)) add("practice", "warn", "practice.on_log", {}, "docs/setup/README.md");
   else add("practice", "warn", testTo ? "practice.on" : "practice.on_nobody", { count: testTo }, "docs/setup/README.md");
   // Live, the domain the email comes from must be verified (or it's refused, or lands in spam), and the email
   // service's reports must reach the club (email_events.ts), or it keeps emailing addresses that bounce.
-  const mailDomain = env.KUMI_MAIL_FROM ? emailDomain(env.KUMI_MAIL_FROM) : null;
-  if (production && env.KUMI_RESEND_API_KEY && mailDomain) {
-    const s = await checkSendingDomain(env.KUMI_RESEND_API_KEY, mailDomain, { fetch: deps.fetch, resolveTxt: deps.resolveTxt });
+  const mailDomain = setting("MAIL_FROM", env) ? emailDomain(setting("MAIL_FROM", env)!) : null;
+  if (production && setting("RESEND_API_KEY", env) && mailDomain) {
+    const s = await checkSendingDomain(setting("RESEND_API_KEY", env)!, mailDomain, { fetch: deps.fetch, resolveTxt: deps.resolveTxt });
     if (s.state === "verified") add("email_domain", "ok", "email_domain.verified", { domain: mailDomain });
     else if (s.state === "status") add("email_domain", "fail", "email_domain.status", { domain: mailDomain, status: s.status }, "docs/setup/accounts/resend.md");
     else if (s.state === "missing") add("email_domain", "fail", "email_domain.missing", { domain: mailDomain }, "docs/setup/accounts/resend.md");
     else if (s.state === "dkim") add("email_domain", s.found ? "ok" : "warn", s.found ? "email_domain.dkim" : "email_domain.no_dkim", { domain: mailDomain }, s.found ? undefined : "docs/setup/accounts/resend.md");
     else add("email_domain", "warn", "email_domain.unknown", { domain: mailDomain, error: s.error }, "docs/setup/accounts/resend.md");
   }
-  if (env.KUMI_RESEND_API_KEY) {
+  if (setting("RESEND_API_KEY", env)) {
     const held = await suppressionCounts(db, now).catch(() => null);
     const counts = { held: held?.held ?? 0, bounce: held?.bounce ?? 0, complaint: held?.complaint ?? 0 };
-    if (!env.KUMI_RESEND_WEBHOOK_SECRET) add("email_reports", production ? "warn" : "off", "email_reports.off", {}, "docs/setup/accounts/resend.md");
+    if (!setting("RESEND_WEBHOOK_SECRET", env)) add("email_reports", production ? "warn" : "off", "email_reports.off", {}, "docs/setup/accounts/resend.md");
     // Spam complaints are what get a sending account stopped: more than a few in a month is worth a look.
     else add("email_reports", counts.complaint >= 3 ? "warn" : "ok", counts.held ? "email_reports.held" : "email_reports.ok", counts);
   }
@@ -128,7 +129,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
     if (typeof answer === "object") add("texts", "fail", "texts.refused", { error: answer.error }, twDoc);
     else if (answer === "test") add("texts", production ? "warn" : "ok", "texts.test");
     else if (total >= 5 && sent.failed / total > 0.2) add("texts", "warn", "texts.failing", { failed: sent.failed, total }, twDoc);
-    else if (!production || env.KUMI_PRACTICE === "1") add("texts", "warn", "texts.practice", { count: (env.KUMI_SMS_TEST_TO ?? "").split(",").filter((n) => n.trim()).length });
+    else if (!production || setting("PRACTICE", env) === "1") add("texts", "warn", "texts.practice", { count: (setting("SMS_TEST_TO", env) ?? "").split(",").filter((n) => n.trim()).length });
     else add("texts", "ok", "texts.ok", { sent: sent.sent, failed: sent.failed });
   }
   // The club's own terms and privacy policy for members (Settings, docs/templates): optional, except that carriers
@@ -168,7 +169,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
 
   // Ask openPadel, the hosted assistant (assistant.ts): optional, on the same Anthropic key, whose check above is reused.
   const askDoc = "docs/setup/accounts/ask-openpadel.md";
-  if (!env.KUMI_ANTHROPIC_API_KEY?.trim()) add("assistant", "off", "assistant.off", {}, askDoc);
+  if (!setting("ANTHROPIC_API_KEY", env)?.trim()) add("assistant", "off", "assistant.off", {}, askDoc);
   else {
     const refused = keys.find((k) => k.model === "haiku" && k.error);
     const month = monthOf(now, club.time_zone);
@@ -178,20 +179,20 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   }
 
   // Card payments.
-  const sk = env.KUMI_STRIPE_SECRET_KEY;
+  const sk = setting("STRIPE_SECRET_KEY", env);
   if (!sk) add("payments", production ? "warn" : "off", "payments.off", {}, "docs/setup/accounts/stripe.md");
   else if (sk.includes("_live_") && !production) add("payments", "fail", "payments.live_outside", {}, "docs/setup/accounts/stripe.md");
-  else if (!env.KUMI_STRIPE_PUBLISHABLE_KEY) add("payments", "fail", "payments.no_publishable", {}, "docs/setup/accounts/stripe.md");
-  else if (!env.KUMI_STRIPE_WEBHOOK_SECRET) add("payments", "warn", "payments.no_webhook", {}, "docs/setup/accounts/stripe.md");
+  else if (!setting("STRIPE_PUBLISHABLE_KEY", env)) add("payments", "fail", "payments.no_publishable", {}, "docs/setup/accounts/stripe.md");
+  else if (!setting("STRIPE_WEBHOOK_SECRET", env)) add("payments", "warn", "payments.no_webhook", {}, "docs/setup/accounts/stripe.md");
   else add("payments", sk.includes("_live_") ? "ok" : production ? "warn" : "ok", sk.includes("_live_") ? "payments.live" : "payments.test");
   // Apple Pay and Google Pay: the members' address registered with Stripe (the server does it as it starts). Reading only.
-  const walletHost = (() => { try { return env.KUMI_PUBLIC_URL ? walletDomainOf(memberUrl(env.KUMI_PUBLIC_URL, env)) : null; } catch { return null; } })();
-  if (sk && env.KUMI_STRIPE_PUBLISHABLE_KEY && !(sk.includes("_live_") && !production)) {
+  const walletHost = (() => { try { return setting("PUBLIC_URL", env) ? walletDomainOf(memberUrl(setting("PUBLIC_URL", env)!, env)) : null; } catch { return null; } })();
+  if (sk && setting("STRIPE_PUBLISHABLE_KEY", env) && !(sk.includes("_live_") && !production)) {
     const stDoc = "docs/setup/accounts/stripe.md";
     if (!walletHost) add("wallets", "off", "wallets.no_domain", {}, stDoc);
     else {
       try {
-        const st = new StripeProvider({ secretKey: sk, ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(env.KUMI_STRIPE_CONNECT === "1" ? { connect: clubStripeAccount(db) } : {}) });
+        const st = new StripeProvider({ secretKey: sk, ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(setting("STRIPE_CONNECT", env) === "1" ? { connect: clubStripeAccount(db) } : {}) });
         const w = await st.walletDomain(walletHost);
         if (!w || !w.enabled) add("wallets", "warn", "wallets.missing", { domain: walletHost }, stDoc);
         else if (w.applePay !== "active") add("wallets", "warn", "wallets.apple_inactive", { domain: walletHost, problem: w.problem ?? w.applePay }, stDoc);
@@ -203,7 +204,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // The club's currency against the Stripe account's: a mismatch means Stripe converts every payment, with a fee.
   if (sk && !(sk.includes("_live_") && !production)) {
     try {
-      const st = new StripeProvider({ secretKey: sk, ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(env.KUMI_STRIPE_CONNECT === "1" ? { connect: clubStripeAccount(db) } : {}) });
+      const st = new StripeProvider({ secretKey: sk, ...(deps.fetch ? { fetch: deps.fetch } : {}), ...(setting("STRIPE_CONNECT", env) === "1" ? { connect: clubStripeAccount(db) } : {}) });
       const [stripe, club] = [await st.defaultCurrency(), (await db.selectFrom("club").select("currency").executeTakeFirst())?.currency ?? "USD"];
       if (stripe && stripe !== club) add("currency", "warn", "currency.mismatch", { club, stripe }, "docs/setup/README.md");
       else if (stripe) add("currency", "ok", "currency.ok", { currency: club });
@@ -211,7 +212,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   }
 
   // Playtomic, only for a club that also runs on it.
-  if (!env.KUMI_PLAYTOMIC_CLIENT_ID) add("playtomic", "off", "playtomic.off");
+  if (!setting("PLAYTOMIC_CLIENT_ID", env)) add("playtomic", "off", "playtomic.off");
   else {
     const s = await db.selectFrom("connector_status").selectAll().where("system", "=", "playtomic").executeTakeFirst();
     if (!s?.last_sync_at) add("playtomic", "warn", "playtomic.waiting", {}, "docs/setup/accounts/playtomic.md");
@@ -220,7 +221,7 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   }
 
   // Backups, where the one-server setup keeps them.
-  const dir = env.KUMI_BACKUP_DIR ?? "/var/backups/kumi";
+  const dir = setting("BACKUP_DIR", env) ?? "/var/backups/kumi";
   let newest: number | null = null;
   // An update's snapshot (update-*.dump, deploy/release.sh) isn't counted: it has no manifest of the rows to check a
   // restore against, isn't sealed and sent offsite, isn't what the restore test opens, and only the last few are kept.
@@ -230,15 +231,15 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   if (newest === null) add("backups", production ? "warn" : "off", snapshot ? "backups.only_update" : "backups.none", { dir }, "docs/setup/accounts/server.md");
   else { const hours = Math.round((now.getTime() - newest) / 3600_000); add("backups", hours > 36 ? "warn" : "ok", hours > 36 ? `backups.old${d}` : "backups.ok", { hours, dir }); }
   // The server's key for the secrets it keeps (sealed.ts): production won't start without it.
-  if (!env.KUMI_SECRET_KEY?.trim()) add("secret_key", production ? "fail" : "warn", "secret_key.missing", {}, opsDoc);
-  else { try { parseSecretKey(env.KUMI_SECRET_KEY); add("secret_key", "ok", "secret_key.ok"); } catch { add("secret_key", "fail", "secret_key.bad", {}, opsDoc); } }
+  if (!setting("SECRET_KEY", env)?.trim()) add("secret_key", production ? "fail" : "warn", "secret_key.missing", {}, opsDoc);
+  else { try { parseSecretKey(setting("SECRET_KEY", env)!); add("secret_key", "ok", "secret_key.ok"); } catch { add("secret_key", "fail", "secret_key.bad", {}, opsDoc); } }
 
   // The offsite copy and the monthly restore test, as their last runs recorded them.
   const hb = await heartbeats(db).catch(() => ({} as Awaited<ReturnType<typeof heartbeats>>));
   const ago = (d: Date | null | undefined) => (d ? (now.getTime() - new Date(d).getTime()) / 3600_000 : null);
   const off = hb.offsite, offDoc = "docs/setup/accounts/offsite-backups.md";
   if (!s3FromEnv(env)) add("offsite", production ? "warn" : "off", "offsite.off", {}, offDoc);
-  else if (!env.KUMI_BACKUP_KEY?.trim()) add("offsite", "fail", "offsite.no_key", {}, offDoc);
+  else if (!setting("BACKUP_KEY", env)?.trim()) add("offsite", "fail", "offsite.no_key", {}, offDoc);
   else if (off?.last_error) add("offsite", "fail", "offsite.failing", { error: off.last_error }, offDoc);
   else if (!off?.last_ok_at) add("offsite", "warn", "offsite.waiting", {}, offDoc);
   else {
@@ -254,8 +255,8 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
 
   // Plugins (plugins.ts): each one's health, asked at its health address within the webhooks' rules and a few seconds;
   // one waiting for its registration or for keys says so. None installed, nothing said.
-  // A catalog other than openPadel's (KUMI_PLUGIN_CATALOG_URL): whatever is in it counts as reviewed, so it's said.
-  if (!ownCatalog(env.KUMI_PLUGIN_CATALOG_URL)) add("plugin_catalog", "warn", "plugin_catalog.other", { url: env.KUMI_PLUGIN_CATALOG_URL!.trim() }, "docs/plugins/README.md");
+  // A catalog other than openPadel's (OPENPADEL_PLUGIN_CATALOG_URL): whatever is in it counts as reviewed, so it's said.
+  if (!ownCatalog(setting("PLUGIN_CATALOG_URL", env))) add("plugin_catalog", "warn", "plugin_catalog.other", { url: setting("PLUGIN_CATALOG_URL", env)!.trim() }, "docs/plugins/README.md");
   const plugins = await pluginsHealth(db, production).catch(() => []);
   const hostOfUrl = (u: string | null) => { try { return u ? new URL(u).host : ""; } catch { return u ?? ""; } };
   for (const pl of plugins) {
@@ -276,12 +277,12 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   // postgres user's job recorded them (the kumi user can't read the archive itself). In Docker that job is the pitr
   // service, which holds pgBackRest's settings itself: the server's container never sees them.
   const pitrDoc = docker ? "deploy/docker/README.md" : "docs/setup/accounts/offsite-backups.md";
-  if (env.KUMI_PITR_HOST === "1") { add("pitr", "ok", "pitr.hosted"); return checks; }
+  if (setting("PITR_HOST", env) === "1") { add("pitr", "ok", "pitr.hosted"); return checks; }
   const a = await archiverState(db).catch(() => null), p = hb.pitr;
   const pd = (p?.details ?? {}) as { newest_at?: string | null; restorable_from?: string | null; repos?: number[]; offsite?: string };
-  if (env.KUMI_PITR?.trim() === "0") { add("pitr", production ? "warn" : "off", "pitr.off_setting", {}, pitrDoc); return checks; }
+  if (setting("PITR", env)?.trim() === "0") { add("pitr", production ? "warn" : "off", "pitr.off_setting", {}, pitrDoc); return checks; }
   if (!a || a.mode !== "on") { add("pitr", production ? "warn" : "off", `pitr.off${d}`, {}, pitrDoc); return checks; }
-  if (!docker && !existsSync(env.KUMI_PITR_CONF ?? PITR_CONF)) add("pitr", "warn", "pitr.not_set_up", {}, pitrDoc);
+  if (!docker && !existsSync(setting("PITR_CONF", env) ?? PITR_CONF)) add("pitr", "warn", "pitr.not_set_up", {}, pitrDoc);
   else if (archiverFailing(a)) add("pitr", "fail", `pitr.archive_failing${d}`, { wal: a.lastFailedWal ?? "" }, pitrDoc);
   else if (p?.last_error) add("pitr", "fail", "pitr.base_failing", { error: p.last_error }, pitrDoc);
   else if (!pd.newest_at || !pd.restorable_from) add("pitr", "warn", `pitr.waiting${d}`, {}, pitrDoc);

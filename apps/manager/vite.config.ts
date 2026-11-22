@@ -5,7 +5,7 @@ import { wording } from "../../packages/i18n/src/vite.ts";
 import { bootArt, offlineShell } from "../../packages/ui/vite.ts";
 
 // In development the Kumi server runs on 8790 and Vite proxies to it, so the session cookie and
-// passkeys see one origin (start the server with KUMI_PUBLIC_URL=http://localhost:5173).
+// passkeys see one origin (start the server with OPENPADEL_PUBLIC_URL=http://localhost:5173).
 const api = "http://127.0.0.1:8790";
 const proxied = ["/auth", "/me", "/my", "/club", "/actions", "/runs", "/staff", "/oauth", "/.well-known", "/mcp", "/assistant", "/plugins", "/health", "/manifest", "/public", "/calendar", "/unsubscribe"];
 /** A path and what's under it, not every path that starts the same way ("/me" isn't "/membership"). */

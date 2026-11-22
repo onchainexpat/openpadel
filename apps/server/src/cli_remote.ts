@@ -14,6 +14,7 @@ import { Store, clubKey, type ClubEntry, type RunEntry, type Tokens } from "./cl
 import { actionNamed, catalogueAction, clubTime, commands, example, findCommand, FINDERS, flagOf, match, parseInput, typeWords, UsageError, type Command, type Entity, type Parsed } from "./cli_commands.ts";
 import { VERSION } from "./version.ts";
 import { DEVICE_GRANT } from "./oauth.ts";
+import { setting } from "@kumi/core";
 
 /** What each exit code means (docs/cli/README.md lists them; agents branch on them). */
 export const EXIT = { done: 0, failed: 1, usage: 2, refused: 3, not_found: 4, ambiguous: 5, app_only: 6, conflict: 7, signed_out: 8, unreachable: 9,
@@ -35,7 +36,7 @@ export function defaultDeps(): RemoteDeps {
     openBrowser: hasBrowser() ? openBrowser : null, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), now: () => Date.now(), hostname: osHostname(), env: process.env,
   };
 }
-const hasBrowser = () => process.env.KUMI_NO_BROWSER !== "1" && (process.platform === "darwin" || process.platform === "win32" || Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY));
+const hasBrowser = () => setting("NO_BROWSER") !== "1" && (process.platform === "darwin" || process.platform === "win32" || Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY));
 /** The program that opens a web page, and its arguments (never a shell): on Windows not cmd.exe's start, which
  *  would cut the link at its first & and could run what follows it. Null for anything but an http(s) page. */
 export function browserCommand(platform: string, url: string): [string, string[]] | null {
@@ -159,7 +160,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
   const { g, rest } = globalsOf(argv);
   const d = deps, store = d.store;
   const entry = (() => { try { return store.pick(g.club, d.env); } catch { return null; } })();
-  let lang: Lang = pickLang(g.lang ?? entry?.lang ?? d.env.KUMI_LANG ?? d.env.LANG?.slice(0, 2), "en");
+  let lang: Lang = pickLang(g.lang ?? entry?.lang ?? setting("LANG", d.env) ?? d.env.LANG?.slice(0, 2), "en");
   const say = (key: Key, p: Params = {}) => t(lang, key, p);
   const emit = (v: Record<string, unknown>) => d.out(JSON.stringify(v));
   try {
@@ -195,7 +196,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     return s.code;
   }
   function need(): Club {
-    if (!entry) throw g.club || d.env.KUMI_CLUB ? stop(EXIT.signed_out, "cli.not_signed_in_to", { url: g.club ?? d.env.KUMI_CLUB! }) : stop(EXIT.signed_out, "cli.not_signed_in");
+    if (!entry) throw g.club || setting("CLUB", d.env) ? stop(EXIT.signed_out, "cli.not_signed_in_to", { url: g.club ?? setting("CLUB", d.env)! }) : stop(EXIT.signed_out, "cli.not_signed_in");
     return new Club(entry, d);
   }
   function refuseUnknown(words: string[]): number {
@@ -248,7 +249,7 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
 
   // ---- Signing in ----
   async function login(args: string[]): Promise<number> {
-    const raw = args.find((a) => !a.startsWith("--")) ?? g.club ?? d.env.KUMI_CLUB;
+    const raw = args.find((a) => !a.startsWith("--")) ?? g.club ?? setting("CLUB", d.env);
     if (!raw) throw stop(EXIT.usage, "cli.login_which");
     let url: string;
     try { url = clubKey(raw); } catch { throw stop(EXIT.usage, "cli.not_a_club", { url: raw, why: "not an address" }); }
@@ -272,9 +273,9 @@ export async function remoteMain(argv: string[], deps: RemoteDeps = defaultDeps(
     let tokens: { access_token: string; refresh_token: string; expires_in: number }, clientId: string;
     const browser = d.openBrowser;
     if (args.includes("--agent-token")) {
-      // A club agent's token (agents.ts), from KUMI_AGENT_TOKEN or piped in, never typed as an argument (it would stay in
+      // A club agent's token (agents.ts), from OPENPADEL_AGENT_TOKEN or piped in, never typed as an argument (it would stay in
       // the shell's history). It doesn't run out, so there's nothing to renew: it ends when the club revokes it.
-      const token = (d.env.KUMI_AGENT_TOKEN ?? await readStdin()).trim();
+      const token = (setting("AGENT_TOKEN", d.env) ?? await readStdin()).trim();
       if (!/^opa_[A-Za-z0-9_-]{20,}$/.test(token)) throw stop(EXIT.usage, "cli.agent_token_bad");
       tokens = { access_token: token, refresh_token: "", expires_in: 100 * 365 * 86400 }; clientId = "openpadel-agent";
     } else if (device || !browser) {

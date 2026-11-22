@@ -37,8 +37,8 @@
 //                                  server, held so it isn't sent twice (held.ts); send it on, or drop it, once that one is off
 //   kumi restore-test              restore the newest backup into a scratch database and check it
 //                                  (--scheduled: only when it's due, the 1st at 4:17 on the club's clock)
-//   kumi rotate-key                seal every secret with KUMI_SECRET_KEY (the old one in KUMI_SECRET_KEY_PREVIOUS)
-//   kumi keys                      whether KUMI_SECRET_KEY and KUMI_BACKUP_KEY are set, and each one's last 4 characters
+//   kumi rotate-key                seal every secret with OPENPADEL_SECRET_KEY (the old one in OPENPADEL_SECRET_KEY_PREVIOUS)
+//   kumi keys                      whether OPENPADEL_SECRET_KEY and OPENPADEL_BACKUP_KEY are set, and each one's last 4 characters
 //                                  only: for the owner to check the copies they keep match (never the keys themselves)
 //   kumi texting plan|apply|status [club.yaml]   register the club's texting with US carriers through its own
 //                                  Twilio account, toll-free (texting.ts); apply --yes to buy a number or start over
@@ -70,18 +70,19 @@ import { TwilioApi } from "./twilio_admin.ts";
 import { memberUrl } from "./addresses.ts";
 import { pitrMain, toArg } from "./pitr_cli.ts";
 import { afterRestore, readSentBefore, type AfterRestore, type KeepDeleted } from "./after_restore.ts";
+import { setting } from "@kumi/core";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
 const langArg = args.find((a) => a.startsWith("--lang="))?.slice(7);
 const [cmd, sub, ...rest] = args.filter((a) => !a.startsWith("--"));
-const lang: Lang = pickLang(langArg ?? process.env.KUMI_LANG ?? process.env.LANG?.slice(0, 2), "en");
+const lang: Lang = pickLang(langArg ?? setting("LANG") ?? process.env.LANG?.slice(0, 2), "en");
 const say = (x: Text) => x[lang];
 const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-const backupDir = process.env.KUMI_BACKUP_DIR ?? "/var/backups/kumi";
+const backupDir = setting("BACKUP_DIR") ?? "/var/backups/kumi";
 const dbUrl = () => { const u = process.env.DATABASE_URL; if (!u) throw new Error("DATABASE_URL isn't set"); return u; };
 const out = (v: unknown) => console.log(JSON.stringify(v, null, 2));
-const serverKeys = () => setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS });
+const serverKeys = () => setSecretKeys({ current: setting("SECRET_KEY"), previous: setting("SECRET_KEY_PREVIOUS") });
 /** A moment on the club's own clock ("Nov 3, 2026, 2:05 PM"), for the status lines. */
 async function clubClock(db: Db): Promise<(d: Date) => string> {
   const tz = (await db.selectFrom("club").select("time_zone").executeTakeFirst())?.time_zone ?? "UTC";
@@ -142,7 +143,7 @@ async function main(): Promise<number> {
   }
   if (cmd === "setup" && (sub === "plan" || sub === "apply")) {
     // A relative path is from where the person ran kumi (the server's wrapper runs it from the app's folder).
-    const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0] ?? process.env.KUMI_CLUB_FILE ?? "club.yaml");
+    const path = resolve(setting("CALLER_DIR") ?? ".", rest[0] ?? setting("CLUB_FILE") ?? "club.yaml");
     let file;
     try { file = readClubFile(path); }
     catch (e) {
@@ -172,7 +173,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "import" && sub === "members" && rest[0]) {
-    const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0]);
+    const path = resolve(setting("CALLER_DIR") ?? ".", rest[0]);
     // An Excel workbook (.xlsx) reads like a CSV: its first sheet (xlsx.ts).
     const bytes = readFileSync(path), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : undefined;
     // `--from playbypoint`: a Playbypoint users list, read by its preset (csv.ts).
@@ -205,8 +206,8 @@ async function main(): Promise<number> {
       if (sub === "players") {
         const { PlaytomicClient, readPlaytomicPlayers } = await import("@kumi/core");
         const e = process.env;
-        if (!e.KUMI_PLAYTOMIC_CLIENT_ID || !e.KUMI_PLAYTOMIC_SECRET || !e.KUMI_PLAYTOMIC_TENANT_ID) { console.error(t(lang, "cli.move_in_no_keys")); return 2; }
-        const client = new PlaytomicClient({ clientId: e.KUMI_PLAYTOMIC_CLIENT_ID, secret: e.KUMI_PLAYTOMIC_SECRET, tenantId: e.KUMI_PLAYTOMIC_TENANT_ID, pageDelayMs: Number(e.KUMI_MIRROR_PAGE_SECONDS ?? 60) * 1000 });
+        if (!setting("PLAYTOMIC_CLIENT_ID", e) || !setting("PLAYTOMIC_SECRET", e) || !setting("PLAYTOMIC_TENANT_ID", e)) { console.error(t(lang, "cli.move_in_no_keys")); return 2; }
+        const client = new PlaytomicClient({ clientId: setting("PLAYTOMIC_CLIENT_ID", e)!, secret: setting("PLAYTOMIC_SECRET", e)!, tenantId: setting("PLAYTOMIC_TENANT_ID", e)!, pageDelayMs: Number(setting("MIRROR_PAGE_SECONDS", e) ?? 60) * 1000 });
         if (!json) console.log(t(lang, "cli.move_in_reading"));
         const r = await readPlaytomicPlayers(db, client);
         if (json) { out(r); return r.ok ? 0 : 1; }
@@ -218,7 +219,7 @@ async function main(): Promise<number> {
       // only what it kept: never rows from anywhere else.
       let upload: { upload_id: string; sha256: string } | null = null;
       if (file) {
-        const r = await run(db, "playtomic.upload", { csv: readFileSync(resolve(process.env.KUMI_CALLER_DIR ?? ".", file), "utf8"), file_name: file.slice(-200) }, owner);
+        const r = await run(db, "playtomic.upload", { csv: readFileSync(resolve(setting("CALLER_DIR") ?? ".", file), "utf8"), file_name: file.slice(-200) }, owner);
         for (const p of ((r.plan.details as { problems?: { text: Text }[] }).problems ?? [])) console.log(`! ${say(p.text)}`);
         upload = r.result as { upload_id: string; sha256: string };
       }
@@ -282,7 +283,7 @@ async function main(): Promise<number> {
       const upload = async (path: string, kind: "people" | "bookings" | "programs") => {
         const key = `${kind}:${path}`;
         if (read.has(key)) return read.get(key)!;
-        const bytes = readFileSync(resolve(process.env.KUMI_CALLER_DIR ?? ".", path)), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : undefined;
+        const bytes = readFileSync(resolve(setting("CALLER_DIR") ?? ".", path)), cells = looksLikeXlsx(bytes) ? readXlsx(bytes) : undefined;
         if (cells === null) throw new KumiError("csv.not_xlsx");
         const r = await run(db, "move.upload", { from: sub, kind, ...(cells ? { cells } : { csv: bytes.toString("utf8") }), file_name: basename(path).slice(0, 200) }, owner);
         report.push({ file: path, action: "move.upload", summary: say(r.plan.summary), applied: true });
@@ -322,7 +323,7 @@ async function main(): Promise<number> {
     let tw;
     try { tw = twilioFromEnv(process.env); } catch (e) { console.error((e as Error).message); return 2; }
     if (!tw) { if (json) out({ ok: false, error: t(lang, "texting.no_twilio") }); else console.error(t(lang, "texting.no_twilio")); return 2; }
-    const path = resolve(process.env.KUMI_CALLER_DIR ?? ".", rest[0] ?? process.env.KUMI_CLUB_FILE ?? "club.yaml");
+    const path = resolve(setting("CALLER_DIR") ?? ".", rest[0] ?? setting("CLUB_FILE") ?? "club.yaml");
     let file;
     try { file = readClubFile(path); }
     catch (e) {
@@ -336,7 +337,7 @@ async function main(): Promise<number> {
       await migrate(db);
       const club = await db.selectFrom("club").select(["name", "time_zone", "terms_url", "privacy_policy_url"]).executeTakeFirst();
       if (!club) { console.error(t(lang, "doctor.club.missing")); return 2; }
-      const publicUrl = process.env.KUMI_PUBLIC_URL ?? "http://127.0.0.1:8790";
+      const publicUrl = setting("PUBLIC_URL") ?? "http://127.0.0.1:8790";
       const deps: TextingDeps = { db, api: new TwilioApi(tw.accountSid, tw.authToken), club: club.name, details: withClubLinks(file.texting, club), publicUrl, memberUrl: memberUrl(publicUrl) };
       const show = (p: TextingPlan) => ({ needs: p.needs.map(say), steps: p.steps.map((s) => ({ step: s.id, text: say(s.text), ...(s.costs ? { costs: true } : {}) })),
         status: p.registration?.status ?? null, number: p.registration?.phone_number ?? null, said: textingStatusText(p.registration, lang, club.time_zone) });
@@ -399,7 +400,7 @@ async function main(): Promise<number> {
     const db = await clubDb();
     try {
       const r = await makeExport(db, { url: dbUrl(), passphrase: typed });
-      const file = join(resolve(process.env.KUMI_CALLER_DIR ?? ".", flag("out") ?? backupDir), r.name);
+      const file = join(resolve(setting("CALLER_DIR") ?? ".", flag("out") ?? backupDir), r.name);
       writeFileSync(file, r.file, { mode: 0o600 });
       if (json) { out({ ok: true, file, bytes: r.file.length, tables: Object.keys(r.manifest.database.tables).length }); return 0; }
       console.log(t(lang, "cli.export_done", { file, mb: (r.file.length / 1048576).toFixed(1) }));
@@ -527,7 +528,7 @@ async function main(): Promise<number> {
       const pl = await db.selectFrom("plugin").select(["name", "manifest", "mode", "local_port", "status", "club_network_ip"]).where("name", "=", rest[0]).where("status", "!=", "removed").executeTakeFirst();
       if (!pl) { console.error(t(lang, "error.plugin_not_installed", { name: rest[0] })); return 2; }
       if (pl.mode !== "local") { console.error(t(lang, "error.plugin_not_local", { name: pl.name })); return 2; }
-      const m = pl.manifest as Manifest, docker = process.env.KUMI_INSTALL === "docker", production = process.env.NODE_ENV === "production";
+      const m = pl.manifest as Manifest, docker = setting("INSTALL") === "docker", production = process.env.NODE_ENV === "production";
       const sp = servicePlan(m, pl.local_port!, docker, undefined, pl.club_network_ip);
       if (args.includes("--remove")) {
         if (args.includes("--apply")) { rmSync(sp.envFile, { force: true }); rmSync(sp.unitFile, { force: true }); }
@@ -538,7 +539,7 @@ async function main(): Promise<number> {
       const release = await fetchRelease(m, production);   // refused (and nothing kept) unless its SHA-256 is the pinned one
       const apply = args.includes("--apply") && !docker;
       if (apply) {
-        usePluginIo({ production, publicUrl: process.env.KUMI_PUBLIC_URL ?? "http://localhost:8787" });
+        usePluginIo({ production, publicUrl: setting("PUBLIC_URL") ?? "http://localhost:8787" });
         writeService(sp, release, (m.run as { entry: string }).entry, await localPluginEnv(db, m.name));
       }
       if (json) { out({ ok: true, applied: apply, verified_sha256: (m.run as { sha256: string }).sha256, bytes: release.length, dir: sp.dir, env_file: sp.envFile, env: sp.envNames, unit_file: sp.unitFile, unit: sp.unit, compose: sp.compose,
@@ -581,8 +582,8 @@ async function main(): Promise<number> {
   // reach this server's log. Printed for whoever runs the server to hand to the owner; it works once, for LINK_MINUTES.
   if (cmd === "sign-in-link" && sub) {
     const fail = (key: "cli.link_email_on" | "cli.link_no_url" | "cli.link_not_owner", code = 2) => { if (json) out({ ok: false, error: t(lang, key, { email: sub }) }); else console.error(t(lang, key, { email: sub })); return code; };
-    if (process.env.KUMI_RESEND_API_KEY || (process.env.NODE_ENV === "production" && process.env.KUMI_PRACTICE !== "1")) return fail("cli.link_email_on");
-    const base = process.env.KUMI_PUBLIC_URL?.replace(/\/$/, "");
+    if (setting("RESEND_API_KEY") || (process.env.NODE_ENV === "production" && setting("PRACTICE") !== "1")) return fail("cli.link_email_on");
+    const base = setting("PUBLIC_URL")?.replace(/\/$/, "");
     if (!base) return fail("cli.link_no_url");
     const db = await clubDb();
     try {
@@ -643,9 +644,9 @@ async function main(): Promise<number> {
   if (cmd === "pitr") return pitrMain(sub, args, lang, json);
   // A minute, not a file. On a one-server install the root wrapper (sudo kumi restore --to=...) takes that copy from the
   // archive as the postgres user first, then restores it here as a file. Docker's pitr service is that user already
-  // (KUMI_PITR_INLINE=1): it takes the copy and restores it here, with the server stopped first.
+  // (OPENPADEL_PITR_INLINE=1): it takes the copy and restores it here, with the server stopped first.
   if (cmd === "restore" && toArg(args) !== undefined) {
-    if (process.env.KUMI_PITR_INLINE !== "1") { console.error(t(lang, process.env.KUMI_INSTALL === "docker" ? "cli.pitr_needs_pitr_service" : "cli.pitr_needs_root")); return 2; }
+    if (setting("PITR_INLINE") !== "1") { console.error(t(lang, setting("INSTALL") === "docker" ? "cli.pitr_needs_pitr_service" : "cli.pitr_needs_root")); return 2; }
     if (!args.includes("--yes")) { console.error(t(lang, "cli.pitr_confirm", { time: toArg(args) ?? "" })); return 2; }
     const file = join(backupDir, `kumi-pitr-${new Date().toISOString().replace(/[-:]/g, "").slice(0, 15)}Z.dump`);
     // With --json, the restore's answer is the one said (the minute's own line is for a person).
@@ -681,8 +682,8 @@ async function main(): Promise<number> {
   // The two keys the owner keeps away from the server: set or missing, and the last 4 characters only, so the owner (or the
   // agent, reading it to them) can check the copy in their password manager is the right one without anyone seeing a key.
   if (cmd === "keys") {
-    const keys = (["KUMI_SECRET_KEY", "KUMI_BACKUP_KEY"] as const).map((name) => {
-      const v = process.env[name]?.trim().replace(/=+$/, "");
+    const keys = (["OPENPADEL_SECRET_KEY", "OPENPADEL_BACKUP_KEY"] as const).map((name) => {
+      const v = setting(name)?.trim().replace(/=+$/, "");
       return { name, set: Boolean(v), ends_in: v && v.length >= 16 ? v.slice(-4) : null };
     });
     if (json) { out({ ok: keys.every((k) => k.set), keys }); return keys.every((k) => k.set) ? 0 : 1; }
@@ -690,8 +691,8 @@ async function main(): Promise<number> {
     return keys.every((k) => k.set) ? 0 : 1;
   }
   if (cmd === "rotate-key") {
-    if (!process.env.KUMI_SECRET_KEY?.trim()) { console.error(t(lang, "cli.rotate_no_key")); return 2; }
-    setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS });
+    if (!setting("SECRET_KEY")?.trim()) { console.error(t(lang, "cli.rotate_no_key")); return 2; }
+    setSecretKeys({ current: setting("SECRET_KEY"), previous: setting("SECRET_KEY_PREVIOUS") });
     const db = await clubDb();
     try {
       const r = await resealAll(db);
@@ -709,7 +710,7 @@ async function main(): Promise<number> {
 /** `kumi restore <file|offsite:...>` (confirmed): a backup or a club's export in place of the database. The exit code
  *  tells `sudo kumi restore` whether the server may start again: 4 only when the database may be empty. */
 async function restoreFrom(source: string): Promise<number> {
-  const local = source.startsWith("offsite:") ? null : resolve(process.env.KUMI_CALLER_DIR ?? ".", source);
+  const local = source.startsWith("offsite:") ? null : resolve(setting("CALLER_DIR") ?? ".", source);
   if (local && isExportFile(local)) return importClub(local);
   let got: { file: string; cleanup: () => void };
   try {
@@ -725,7 +726,7 @@ async function restoreFrom(source: string): Promise<number> {
         objectKey = latest.dump;
       }
       got = await fetchOffsite(s3, objectKey, key);
-    } else got = readableDump(resolve(process.env.KUMI_CALLER_DIR ?? ".", source));
+    } else got = readableDump(resolve(setting("CALLER_DIR") ?? ".", source));
     const kept = await readOpsRecords(dbUrl()), sent = await readSentBefore(dbUrl());
     let safetyCopy: string;
     try { ({ safetyCopy } = await safeRestore(dbUrl(), got.file, { dir: backupDir })); } finally { got.cleanup(); }
@@ -821,7 +822,7 @@ async function importClub(path: string): Promise<number> {
     if (r.usage_carried.length) console.log(`  - ${t(lang, "cli.import_usage_carried", { months: r.usage_carried.map((m) => m.slice(0, 7)).join(", ") })}`);
     if (settings.length) console.log(`  - ${t(lang, "cli.import_settings", { list: settings.join(", ") })}`);
     if (r.set_elsewhere.length) console.log(`  - ${t(lang, "cli.import_elsewhere", { list: r.set_elsewhere.join(", ") })}`);
-    if (r.stripe_account && process.env.KUMI_STRIPE_CONNECT !== "1") console.log(`  - ${t(lang, "cli.import_stripe", { account: r.stripe_account })}`);
+    if (r.stripe_account && setting("STRIPE_CONNECT") !== "1") console.log(`  - ${t(lang, "cli.import_stripe", { account: r.stripe_account })}`);
     if (r.texting_registered) console.log(`  - ${t(lang, "cli.import_texting")}`);
     if (clubFile) console.log(`  - ${t(lang, "cli.import_club_file", { file: clubFile })}`);
     return 0;

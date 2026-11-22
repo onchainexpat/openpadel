@@ -200,10 +200,10 @@ test("Connectors: built-in services and plugins as one kind of card, with their 
   assert.deepEqual(v.built_ins.map((b) => b.key), ["stripe", "resend", "twilio", "playtomic", "offsite"]);
   const resend = v.built_ins.find((b) => b.key === "resend")!;
   assert.equal(resend.status, "waiting", "email in practice is waiting for go-live");
-  assert.deepEqual(resend.settings.find((s) => s.name === "KUMI_RESEND_API_KEY"), { name: "KUMI_RESEND_API_KEY", added: true, last4: "9F2A" });
+  assert.deepEqual(resend.settings.find((s) => s.name === "OPENPADEL_RESEND_API_KEY"), { name: "OPENPADEL_RESEND_API_KEY", added: true, last4: "9F2A" });
   assert.equal(v.built_ins.find((b) => b.key === "stripe")!.status, "off");
   const offsite = v.built_ins.find((b) => b.key === "offsite")!;
-  assert.deepEqual(offsite.settings.find((s) => s.name === "KUMI_BACKUP_KEY"), { name: "KUMI_BACKUP_KEY", added: true, last4: null }, "the backup key: there, nothing of it shown");
+  assert.deepEqual(offsite.settings.find((s) => s.name === "OPENPADEL_BACKUP_KEY"), { name: "OPENPADEL_BACKUP_KEY", added: true, last4: null }, "the backup key: there, nothing of it shown");
   const text = JSON.stringify(v);
   assert.ok(!text.includes(secret) && !text.includes(backup) && !text.includes("ZZ99"), "no key in what it says");
   const lights = v.plugins.find((p) => p.name === "court-lights")!;

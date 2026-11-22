@@ -10,6 +10,7 @@ import { readFileSync } from "node:fs";
 import { t, type Lang } from "@kumi/i18n";
 import { connect, heartbeat, jobFailed, jobWorked, localParts } from "@kumi/core";
 import { backupKey, clubTimeZone, dbNameOf, scheduledDue } from "./backups.ts";
+import { setting } from "@kumi/core";
 import {
   archiveInfo, archiverFailing, archiverState, basePlan, baseBackups, baseSlot, checkTarget, clubMinute, confOffsite, confRepos, extractAt,
   offsiteArchivePath, PITR_CONF, pitrConf, pitrPaths, STANZA, pitrTestRun, PitrRefused, restorableFrom, scratchBase, type ArchiveInfo,
@@ -43,12 +44,12 @@ export async function pitrMain(sub: string | undefined, args: string[], lang: La
   const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
   // A server several clubs share (kumi-hosted) has one archive for all of them: its own stanza and settings file.
   // Docker's pitr service names its own paths and Postgres's superuser (pitrPaths).
-  const conf = env.KUMI_PITR_CONF ?? PITR_CONF, stanza = env.KUMI_PITR_STANZA?.trim() || STANZA, paths = pitrPaths(env), at = { conf, stanza, paths };
+  const conf = setting("PITR_CONF", env) ?? PITR_CONF, stanza = setting("PITR_STANZA", env)?.trim() || STANZA, paths = pitrPaths(env), at = { conf, stanza, paths };
   const refused = (e: PitrRefused) => { if (json) out({ ok: false, refused: e.why, ...e.values }); else console.error(t(lang, `cli.pitr_${e.why}` as any, e.values)); return 2; };
 
   if (sub === "conf") {
-    if (env.KUMI_PITR?.trim() === "0") return 3;   // turned off on this server: setup and updates leave pgBackRest alone
-    const c = pitrConf(env, { backupKey: backupKey(env), paths, systemId: env.KUMI_PITR_SYSTEM_ID?.trim() || null });
+    if (setting("PITR", env)?.trim() === "0") return 3;   // turned off on this server: setup and updates leave pgBackRest alone
+    const c = pitrConf(env, { backupKey: backupKey(env), paths, systemId: setting("PITR_SYSTEM_ID", env)?.trim() || null });
     process.stdout.write(c.text);
     return 0;
   }

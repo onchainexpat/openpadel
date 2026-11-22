@@ -1,6 +1,6 @@
 // One meter per club month (hosted.md item 9): what the club's paid outside services cost, in cents, against one
 // monthly cap the owner sets. AI (the decisions ask the club makes, and drafts of the club's words in its other
-// language), texts and email each count in the club's month, at the prices in the server's settings (KUMI_PRICES):
+// language), texts and email each count in the club's month, at the prices in the server's settings (OPENPADEL_PRICES):
 // a hosted club is billed from it, and a club on its own keys sees what its providers will charge.
 //
 // At 80% of the cap and at the cap the owner and managers hear once each. Past the cap, plus any amount the owner
@@ -26,14 +26,14 @@ export interface Prices { text_segment: number; email: number; jev_input: number
 /** List prices in late 2026: a Twilio US text segment with the carrier fee; a Resend email past the plan; TypeSafe's
  *  Jev (output free); Claude Haiku 5.5 for prompts up to 100,000 tokens; Claude Sonnet 5.5 (Ask openPadel for staff). */
 export const DEFAULT_PRICES: Prices = { text_segment: 1.26, email: 0.09, jev_input: 4.2, jev_output: 0, haiku_input: 10, haiku_output: 50, sonnet_input: 200, sonnet_output: 1000 };
-/** KUMI_PRICES, like "text_segment=0.83,email=0": any price left out keeps its default. */
+/** OPENPADEL_PRICES, like "text_segment=0.83,email=0": any price left out keeps its default. */
 export function parsePrices(s: string | undefined): Prices {
   const p: Prices = { ...DEFAULT_PRICES };
   for (const part of (s ?? "").split(",").map((x) => x.trim()).filter(Boolean)) {
     const [k, v] = part.split("=").map((x) => x.trim()) as [string, string | undefined];
-    if (!(k in p)) throw new Error(`KUMI_PRICES: "${k}" isn't a price (${Object.keys(p).join(", ")})`);
+    if (!(k in p)) throw new Error(`OPENPADEL_PRICES: "${k}" isn't a price (${Object.keys(p).join(", ")})`);
     const n = Number(v);
-    if (v === undefined || v === "" || !Number.isFinite(n) || n < 0 || n > 100_000) throw new Error(`KUMI_PRICES: ${k} should be a number of cents, like ${k}=${p[k as keyof Prices]}`);
+    if (v === undefined || v === "" || !Number.isFinite(n) || n < 0 || n > 100_000) throw new Error(`OPENPADEL_PRICES: ${k} should be a number of cents, like ${k}=${p[k as keyof Prices]}`);
     p[k as keyof Prices] = n;
   }
   return p;

@@ -174,9 +174,9 @@ test("openpadel keys: whether each key is set and its last 4 characters, never t
   const r = spawnSync(process.execPath, [cli, "keys", "--json"], { encoding: "utf8", env: { PATH: process.env.PATH!, KUMI_SECRET_KEY: secret, KUMI_BACKUP_KEY: backup } });
   assert.equal(r.status, 0, r.stderr);
   assert.ok(!r.stdout.includes(secret) && !r.stdout.includes(backup.slice(0, 20)));
-  assert.deepEqual(JSON.parse(r.stdout).keys, [{ name: "KUMI_SECRET_KEY", set: true, ends_in: secret.replace(/=+$/, "").slice(-4) }, { name: "KUMI_BACKUP_KEY", set: true, ends_in: backup.replace(/=+$/, "").slice(-4) }]);
+  assert.deepEqual(JSON.parse(r.stdout).keys, [{ name: "OPENPADEL_SECRET_KEY", set: true, ends_in: secret.replace(/=+$/, "").slice(-4) }, { name: "OPENPADEL_BACKUP_KEY", set: true, ends_in: backup.replace(/=+$/, "").slice(-4) }]);
   const none = spawnSync(process.execPath, [cli, "keys", "--lang=es"], { encoding: "utf8", env: { PATH: process.env.PATH!, KUMI_SECRET_KEY: secret } });
   assert.equal(none.status, 1);
-  assert.match(none.stdout, /KUMI_BACKUP_KEY: no está en \/etc\/kumi\/kumi\.env\./);
-  assert.match(none.stdout, /KUMI_SECRET_KEY: definida, termina en/);
+  assert.match(none.stdout, /OPENPADEL_BACKUP_KEY: no está en \/etc\/kumi\/kumi\.env\./);
+  assert.match(none.stdout, /OPENPADEL_SECRET_KEY: definida, termina en/);
 });

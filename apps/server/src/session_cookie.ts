@@ -7,7 +7,7 @@
 //
 // For one release the plain name is still read over HTTPS, so nobody is signed out by the update: a request that
 // brings only it is moved to the new name, and the old one cleared. A host whose clubs never had the old name turns
-// that off (KUMI_LEGACY_SESSION_COOKIE=0), since the old name is the one another club could set.
+// that off (OPENPADEL_LEGACY_SESSION_COOKIE=0), since the old name is the one another club could set.
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { SESSION_DAYS } from "./auth.ts";

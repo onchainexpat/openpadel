@@ -71,16 +71,16 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** The email service's webhook (email_events.ts): the secret its posts are signed with, and the club's sender. */
   emailEvents?: { secret: string | null; from: string | null }
   /** Over HTTPS, a session under the cookie's old name is still read and moved to the new one, for a release (on unless
-   *  KUMI_LEGACY_SESSION_COOKIE=0: session_cookie.ts). */
+   *  OPENPADEL_LEGACY_SESSION_COOKIE=0: session_cookie.ts). */
   legacySessionCookie?: boolean
   /** Where a sign-in code emailed goes (main.ts): "sent" by the email service; "log", with no email service set up, only
    *  to the server's log; "practice", only to the server's test addresses (the rest are held in its log). The sign-in
    *  page then says so, rather than that it was emailed. */
   mailReach?: "sent" | "log" | "practice"
-  /** Ask openPadel's model (assistant.ts): on with KUMI_ANTHROPIC_API_KEY, off (and the apps say how to turn it on)
+  /** Ask openPadel's model (assistant.ts): on with OPENPADEL_ANTHROPIC_API_KEY, off (and the apps say how to turn it on)
    *  without one. Tests give a fake. */
   assistant?: ModelClient | null
-  /** Where the plugin catalog's index is (KUMI_PLUGIN_CATALOG_URL): an address or a file; the bundled sample without one. */
+  /** Where the plugin catalog's index is (OPENPADEL_PLUGIN_CATALOG_URL): an address or a file; the bundled sample without one. */
   pluginCatalogUrl?: string | null }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
 type Me = { id: string; display_name: string; locale: string; method: "email_code" | "phone_code" | "passkey" | "two_factor"; created_at: Date; token_hash: string; gate: "setup" | "verify" | null;
@@ -273,7 +273,7 @@ export function makeApp(deps: AppDeps) {
     // Whether a sign-in code really goes by email (mail): with no email service it's only in the server's log.
     // Moved to another server (club_exit.ts): both apps say where, instead of read-only.
     // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
-    // Hosted by Kumi (KUMI_HOSTED=1): staff read "Kumi" for the product, and the apps show "Runs on Kumi".
+    // Hosted by Kumi (OPENPADEL_HOSTED=1): staff read "Kumi" for the product, and the apps show "Runs on Kumi".
     // The software staff used before (coming_from), always one the staff app knows: words and order only.
     // The club's logo, as its icon (the logo on what it sits on), for the apps' headers: named by the brand's tag.
     const { read_only_since, moved_at, moved_to, logo_id, logo_for, ...shown } = club;

@@ -1,6 +1,6 @@
-// Secrets kept in the database are sealed with the server's own key (KUMI_SECRET_KEY, 32 random bytes made at
+// Secrets kept in the database are sealed with the server's own key (OPENPADEL_SECRET_KEY, 32 random bytes made at
 // install): AES-256-GCM, a fresh nonce each time, and the key's short id in front so a value sealed under the
-// key before (KUMI_SECRET_KEY_PREVIOUS) still opens while `kumi rotate-key` moves everything to the new one.
+// key before (OPENPADEL_SECRET_KEY_PREVIOUS) still opens while `kumi rotate-key` moves everything to the new one.
 // Without a key (development only: production refuses to start), values are kept as they are, and say so.
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { sql } from "kysely";
@@ -22,7 +22,7 @@ export function parseSecretKey(text: string): Buffer {
 const idOf = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex").slice(0, 8);
 const keyFrom = (text: string | undefined): Key | null => { if (!text?.trim()) return null; const bytes = parseSecretKey(text); return { id: idOf(bytes), bytes }; };
 
-/** Set the server's keys (from KUMI_SECRET_KEY and KUMI_SECRET_KEY_PREVIOUS). Tests set and clear them too. */
+/** Set the server's keys (from OPENPADEL_SECRET_KEY and OPENPADEL_SECRET_KEY_PREVIOUS). Tests set and clear them too. */
 export function setSecretKeys(k: { current?: string; previous?: string }) {
   current = keyFrom(k.current);
   previous = keyFrom(k.previous);

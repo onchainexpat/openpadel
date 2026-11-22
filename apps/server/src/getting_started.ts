@@ -5,6 +5,7 @@
 import { both, type Key, type Lang } from "@kumi/i18n";
 import { gettingStarted, setStartOutside, type Db, type StartKey } from "@kumi/core";
 import { checksNow, statusOf } from "./connectors.ts";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 /** Where each step is done in the staff app. Practice mode is turned off on the server, with the owner's say-so (setup
@@ -21,7 +22,7 @@ export function startFromChecks(db: Db, env: Env = process.env): void {
     const checks = await checksNow(db, env, false), of = (id: string) => checks.find((c) => c.id === id);
     const working = (id: string) => { const c = of(id); return Boolean(c) && ["on", "waiting"].includes(statusOf(c!)); };
     // A host's Stripe Connect: the club's own account takes payments once Stripe says it can.
-    const connect = env.KUMI_STRIPE_CONNECT === "1" ? Boolean((await db.selectFrom("club").select("stripe_charges_enabled").executeTakeFirst())?.stripe_charges_enabled) : true;
+    const connect = setting("STRIPE_CONNECT", env) === "1" ? Boolean((await db.selectFrom("club").select("stripe_charges_enabled").executeTakeFirst())?.stripe_charges_enabled) : true;
     return { payments: working("payments") && connect, email: working("email"), live: of("practice")?.state === "ok" };
   });
 }

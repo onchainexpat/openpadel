@@ -1,6 +1,6 @@
 // "Offer a draft": the club's own words (a plan's description, a program's name, the waiver, a coach's bio) put
 // into the club's other language by Claude Haiku, through the same Anthropic key ask the club uses
-// (KUMI_ANTHROPIC_API_KEY). The draft lands in the staff form's field: a person reads it, changes what needs
+// (OPENPADEL_ANTHROPIC_API_KEY). The draft lands in the staff form's field: a person reads it, changes what needs
 // changing and saves it. Nothing is saved from here. Only the text to translate leaves the server. Each draft
 // counts on the club's monthly meter (usage.ts), and past the club's limit there are none until the 1st.
 import Anthropic from "@anthropic-ai/sdk";
@@ -8,6 +8,7 @@ import { Hono, type Context } from "hono";
 import { countAi, KumiError, supportRoleKeys, usageAllows, type Db } from "@kumi/core";
 import { isLang, type Lang } from "@kumi/i18n";
 import { HAIKU_MODEL } from "./answerer.ts";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -38,7 +39,7 @@ export function haikuTranslator(key: string, fetchFn?: Fetch): Translator {
 }
 /** The translator the server's settings turn on: Haiku when an Anthropic key is set, otherwise none (no button). */
 export function translatorFromEnv(env: Env, fetchFn?: Fetch): Translator | null {
-  const key = env.KUMI_ANTHROPIC_API_KEY?.trim();
+  const key = setting("ANTHROPIC_API_KEY", env)?.trim();
   return key ? haikuTranslator(key, fetchFn) : null;
 }
 

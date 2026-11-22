@@ -2,6 +2,7 @@
 // what backups need (put, get, list, delete), signed with AWS Signature Version 4 on node:crypto: no SDK. Each
 // object is one PUT, so it holds the whole file in memory: fine for a club's database, and capped (S3_PUT_MAX).
 import { createHash, createHmac } from "node:crypto";
+import { setting } from "@kumi/core";
 
 /** The largest object sent in one PUT. Bigger needs multipart upload, which isn't built: a club's database is
  *  far smaller (tens of MB after years), and the server holds the file in memory while it sends it. */
@@ -118,7 +119,7 @@ const unxml = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").repla
 
 /** The offsite settings from the environment, or null when offsite backups aren't set up. */
 export function s3FromEnv(env: Record<string, string | undefined>): S3Config | null {
-  const endpoint = env.KUMI_OFFSITE_ENDPOINT, bucket = env.KUMI_OFFSITE_BUCKET, accessKeyId = env.KUMI_OFFSITE_ACCESS_KEY_ID, secretAccessKey = env.KUMI_OFFSITE_SECRET_ACCESS_KEY;
+  const endpoint = setting("OFFSITE_ENDPOINT", env), bucket = setting("OFFSITE_BUCKET", env), accessKeyId = setting("OFFSITE_ACCESS_KEY_ID", env), secretAccessKey = setting("OFFSITE_SECRET_ACCESS_KEY", env);
   if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) return null;
-  return { endpoint: endpoint.replace(/\/$/, ""), bucket, accessKeyId, secretAccessKey, region: env.KUMI_OFFSITE_REGION || "auto", pathStyle: env.KUMI_OFFSITE_PATH_STYLE !== "0" };
+  return { endpoint: endpoint.replace(/\/$/, ""), bucket, accessKeyId, secretAccessKey, region: setting("OFFSITE_REGION", env) || "auto", pathStyle: setting("OFFSITE_PATH_STYLE", env) !== "0" };
 }

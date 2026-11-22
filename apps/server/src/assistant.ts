@@ -7,7 +7,7 @@
 // roles the person holds.
 //
 // Claude Sonnet 5.5 plans for staff, Claude Haiku 5.5 answers members; both on the club's own Anthropic key
-// (KUMI_ANTHROPIC_API_KEY) when self-hosted. Each call counts on the club's monthly meter as `ai_assistant`
+// (OPENPADEL_ANTHROPIC_API_KEY) when self-hosted. Each call counts on the club's monthly meter as `ai_assistant`
 // (usage.ts); past what the owner allows, it says so and stops, and nothing else is touched.
 import Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -20,6 +20,7 @@ import { both, isLang, type Lang } from "@kumi/i18n";
 import { mcpServerFor, toolBase, type DoorOpts } from "./mcp.ts";
 import { gaveSecondStep } from "./oauth.ts";
 import { previewWords } from "./preview_words.ts";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 export type Surface = "staff" | "member";
@@ -37,7 +38,7 @@ export const TURNS_PER_HOUR = 40;
 const HISTORY = 60;
 
 export function modelFromEnv(env: Env): ModelClient | null {
-  const key = env.KUMI_ANTHROPIC_API_KEY?.trim();
+  const key = setting("ANTHROPIC_API_KEY", env)?.trim();
   if (!key) return null;
   const client = new Anthropic({ apiKey: key, timeout: 90_000, maxRetries: 2 });
   return { create: (p) => client.messages.create(p) };

@@ -2,7 +2,7 @@
 // and the monthly test that a backup really restores. The dump and the counts come from one snapshot of the
 // database, so a restore can be checked against the manifest exactly.
 //
-// Offsite copies are sealed with KUMI_BACKUP_KEY, a key of their own, not the server's: a lost server takes its
+// Offsite copies are sealed with OPENPADEL_BACKUP_KEY, a key of their own, not the server's: a lost server takes its
 // key with it, and the backups must still open. The owner keeps the backup key somewhere safe away from the
 // server (a password manager). Secrets inside the database (vault, authenticators, push key) stay sealed with
 // the server's key; restored without that key, those few need setting up again, and everything else is whole.
@@ -15,14 +15,15 @@ import { sql, type Kysely } from "kysely";
 import { atLocal, connect, heartbeat, jobFailed, jobWorked, localParts, migrate, parseSecretKey, type Db, type OpsJob } from "@kumi/core";
 import { S3Client, type S3Config } from "./s3.ts";
 import { expectedShape, putSettingsBack, schemaShape, settingsNow, shapeDifferences, type Shape } from "./shape.ts";
+import { setting } from "@kumi/core";
 
 export const LOCAL_DAYS = 14, OFFSITE_DAILY = 30, OFFSITE_MONTHLY = 12;
 type Env = Record<string, string | undefined>;
 
 // ---- The Postgres tools ----
-/** pg_dump, pg_restore: from KUMI_PG_BIN, else Postgres 17's own folder, else the PATH. */
+/** pg_dump, pg_restore: from OPENPADEL_PG_BIN, else Postgres 17's own folder, else the PATH. */
 export function pgTool(name: "pg_dump" | "pg_restore", env: Env = process.env): string {
-  if (env.KUMI_PG_BIN) return join(env.KUMI_PG_BIN, name);
+  if (setting("PG_BIN", env)) return join(setting("PG_BIN", env)!, name);
   const v17 = `/usr/lib/postgresql/17/bin/${name}`;
   return existsSync(v17) ? v17 : name;
 }
@@ -137,7 +138,7 @@ export function newestLocal(dir: string): { file: string; manifestFile: string |
 
 // ---- Sealing a backup for offsite ----
 const MAGIC = Buffer.from("KUMIBK1\n");
-export function backupKey(env: Env = process.env): Buffer | null { return env.KUMI_BACKUP_KEY?.trim() ? parseSecretKey(env.KUMI_BACKUP_KEY) : null; }
+export function backupKey(env: Env = process.env): Buffer | null { return setting("BACKUP_KEY", env)?.trim() ? parseSecretKey(setting("BACKUP_KEY", env)!) : null; }
 export function sealBackup(plain: Buffer, key: Buffer): Buffer {
   const iv = randomBytes(12), c = createCipheriv("aes-256-gcm", key, iv);
   const ct = Buffer.concat([c.update(plain), c.final()]);
@@ -148,18 +149,18 @@ export function openBackup(sealed: Buffer, key: Buffer): Buffer {
   const at = MAGIC.length, d = createDecipheriv("aes-256-gcm", key, sealed.subarray(at, at + 12));
   d.setAuthTag(sealed.subarray(at + 12, at + 28));
   try { return Buffer.concat([d.update(sealed.subarray(at + 28)), d.final()]); }
-  catch { throw new Error("this backup doesn't open with KUMI_BACKUP_KEY (a different key, or the file is damaged)"); }
+  catch { throw new Error("this backup doesn't open with OPENPADEL_BACKUP_KEY (a different key, or the file is damaged)"); }
 }
 
 // ---- Offsite ----
-export const offsitePrefix = (env: Env = process.env) => { const p = (env.KUMI_OFFSITE_PREFIX ?? "kumi/").replace(/^\/+/, ""); return p && !p.endsWith("/") ? `${p}/` : p; };
+export const offsitePrefix = (env: Env = process.env) => { const p = (setting("OFFSITE_PREFIX", env) ?? "kumi/").replace(/^\/+/, ""); return p && !p.endsWith("/") ? `${p}/` : p; };
 
 /** Upload a dump (and its manifest), sealed, as tonight's daily copy and, if this month has none yet, its monthly
  *  copy; then drop daily copies past OFFSITE_DAILY days and monthly ones past OFFSITE_MONTHLY months. */
 /** Whether Kumi removes old offsite copies itself (the default), or leaves that to the storage's own lifecycle
- *  rules (KUMI_OFFSITE_PRUNE=0): then the server's key needs no right to delete, so whoever takes the server
+ *  rules (OPENPADEL_OFFSITE_PRUNE=0): then the server's key needs no right to delete, so whoever takes the server
  *  can't wipe the offsite copies with it. */
-export const offsitePrunes = (env: Env = process.env) => env.KUMI_OFFSITE_PRUNE?.trim() !== "0";
+export const offsitePrunes = (env: Env = process.env) => setting("OFFSITE_PRUNE", env)?.trim() !== "0";
 export async function offsitePush(s3: S3Client, o: { file: string; manifestFile: string | null; key: Buffer; prefix: string; now?: Date; tz?: string; prune?: boolean }) {
   const now = o.now ?? new Date(), dump = readFileSync(o.file), stem = basename(o.file).replace(/\.dump$/, "");
   const sealedDump = sealBackup(dump, o.key), sealedManifest = o.manifestFile ? sealBackup(readFileSync(o.manifestFile), o.key) : null;
@@ -294,7 +295,7 @@ export function readableDump(path: string, env: Env = process.env): { file: stri
   const head = readFileSync(path).subarray(0, MAGIC.length);
   if (!head.equals(MAGIC)) return { file: path, cleanup: () => {} };
   const key = backupKey(env);
-  if (!key) throw new Error("this is a sealed offsite backup: set KUMI_BACKUP_KEY to open it");
+  if (!key) throw new Error("this is a sealed offsite backup: set OPENPADEL_BACKUP_KEY to open it");
   const dir = join(tmpdir(), `kumi-restore-${randomBytes(4).toString("hex")}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const file = join(dir, basename(path).replace(/\.enc$/, ""));
@@ -327,9 +328,9 @@ export function compareCounts(restored: Record<string, number>, against: Record<
   return problems;
 }
 
-/** The scratch database's URL: KUMI_RESTORE_TEST_DATABASE_URL, or the live one's server with the database kumi_restore_test. */
+/** The scratch database's URL: OPENPADEL_RESTORE_TEST_DATABASE_URL, or the live one's server with the database kumi_restore_test. */
 export function scratchUrl(liveUrl: string, env: Env = process.env): string {
-  return env.KUMI_RESTORE_TEST_DATABASE_URL || withDbName(liveUrl, "kumi_restore_test");
+  return setting("RESTORE_TEST_DATABASE_URL", env) || withDbName(liveUrl, "kumi_restore_test");
 }
 
 /** Restore the newest backup (offsite if it's set up, else the newest local one) into the scratch database, check
@@ -340,7 +341,7 @@ export async function restoreTest(db: Db, o: { liveUrl: string; dir: string; s3:
   try {
     let dumpFile: string, manifest: Manifest | null = null;
     if (o.s3) {
-      if (!o.key) throw new Error("offsite backups need KUMI_BACKUP_KEY to be opened");
+      if (!o.key) throw new Error("offsite backups need OPENPADEL_BACKUP_KEY to be opened");
       const latest = await offsiteLatest(o.s3, o.prefix);
       if (!latest) throw new Error("there's no offsite backup yet");
       source = latest.dump;
@@ -355,7 +356,7 @@ export async function restoreTest(db: Db, o: { liveUrl: string; dir: string; s3:
     }
     if (manifest && manifest.sha256 !== createHash("sha256").update(readFileSync(dumpFile)).digest("hex")) throw new Error("the backup doesn't match its manifest's checksum");
     const url = scratchUrl(o.liveUrl, env), created = await ensureScratch(db, url);
-    if (!created && await isSameDatabase(db, url)) throw new Error("the restore test's scratch database is the live database: KUMI_RESTORE_TEST_DATABASE_URL must name another one");
+    if (!created && await isSameDatabase(db, url)) throw new Error("the restore test's scratch database is the live database: OPENPADEL_RESTORE_TEST_DATABASE_URL must name another one");
     let restored: Record<string, number> = {};
     try {
       await restoreInto(url, dumpFile, env);
@@ -464,7 +465,7 @@ export async function nightlyBackup(db: Db, o: { url: string; dir: string; s3: S
   if (!o.s3) return { file: made.file, offsite: null };
   try {
     const key = backupKey(env);
-    if (!key) throw new Error("KUMI_BACKUP_KEY isn't set, so nothing can go offsite");
+    if (!key) throw new Error("OPENPADEL_BACKUP_KEY isn't set, so nothing can go offsite");
     const s3 = new S3Client(o.s3, o.fetch ? { fetch: o.fetch } : {});
     const prune = offsitePrunes(env);
     const r = await offsitePush(s3, { file: made.file, manifestFile: made.manifestFile, key, prefix: offsitePrefix(env), now, tz, prune });

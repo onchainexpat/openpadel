@@ -162,7 +162,7 @@ test("doctor: each check, and what's wrong in production", async () => {
   // Point-in-time backups off (this database doesn't archive): each says how to turn them on its own way.
   assert.match(one.pitr!.text.en, /server-setup\.sh/); assert.match(dock.pitr!.text.en, /deploy\/docker\/update\.sh/);
   assert.equal(dock.pitr!.doc, "deploy/docker/README.md");
-  for (const install of [{}, { KUMI_INSTALL: "docker" }] as Array<Record<string, string>>) assert.match((await checks({ ...install, KUMI_PITR: "0" })).pitr!.text.en, /as KUMI_PITR=0 in the settings says/);
+  for (const install of [{}, { KUMI_INSTALL: "docker" }] as Array<Record<string, string>>) assert.match((await checks({ ...install, KUMI_PITR: "0" })).pitr!.text.en, /as OPENPADEL_PITR=0 in the settings says/);
   // Live without email, sign-in codes would only reach the log: the server refuses to start, and doctor fails.
   assert.equal(one.email!.state, "fail"); assert.match(one.email!.text.en, /won't start/);
   assert.equal((await checks({ KUMI_PRACTICE: "1" })).email!.state, "warn");
@@ -175,8 +175,8 @@ test("doctor: practice mode is said while it's on, in both languages, and ok onc
   assert.match(fresh.text.en, /^Practice mode: on, with no email service yet/); assert.match(fresh.text.es, /^Modo de práctica: activado/);
   const mail = { NODE_ENV: "production", KUMI_PRACTICE: "1", KUMI_RESEND_API_KEY: "re_x", KUMI_MAIL_FROM: "a@b.example" };
   const one = await practice({ ...mail, KUMI_MAIL_TEST_TO: "robin@kestrel.example" }), two = await practice({ ...mail, KUMI_MAIL_TEST_TO: "robin@kestrel.example, dana@kestrel.example" });
-  assert.equal(one.state, "warn"); assert.match(one.text.en, /only to the 1 address in KUMI_MAIL_TEST_TO/); assert.match(two.text.en, /only to the 2 addresses/);
-  assert.match(two.text.es, /solo llega a las 2 direcciones de KUMI_MAIL_TEST_TO/);
+  assert.equal(one.state, "warn"); assert.match(one.text.en, /only to the 1 address in OPENPADEL_MAIL_TEST_TO/); assert.match(two.text.en, /only to the 2 addresses/);
+  assert.match(two.text.es, /solo llega a las 2 direcciones de OPENPADEL_MAIL_TEST_TO/);
   assert.match((await practice(mail)).text.en, /lists nobody/);
   assert.equal((await practice({})).state, "warn", "outside production it's always practice");
   const live = await practice({ NODE_ENV: "production", KUMI_RESEND_API_KEY: "re_x", KUMI_MAIL_FROM: "a@b.example" });

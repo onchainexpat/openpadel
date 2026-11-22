@@ -89,7 +89,7 @@ const amount = (cents: number): Text => ({ en: money(cents, "en"), es: money(cen
 const when = (d: Date | null, tz: string): Text => d ? { en: dateTime(d, "en", tz), es: dateTime(d, "es", tz) } : { en: "", es: "" };
 const NOTHING: Text = { en: "", es: "" };
 
-/** The staff app's address (KUMI_PUBLIC_URL), for the email that tells someone they've been given a staff role:
+/** The staff app's address (OPENPADEL_PUBLIC_URL), for the email that tells someone they've been given a staff role:
  *  emails carry no links of their own, so it's said in words. The server sets it as it starts. */
 let staffAddress: string | null = null;
 export function setStaffAddress(url: string | null) { staffAddress = url ? url.replace(/\/$/, "") : null; }

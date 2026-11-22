@@ -16,6 +16,7 @@ import { seesChats } from "./chats.ts";
 import { seesMoney } from "./receipts.ts";
 import { planLines, saidIn, shortSummary } from "./changes.ts";
 import { gettingStartedView } from "./getting_started.ts";
+import { setting } from "@kumi/core";
 
 type Me = { id: string; locale: string } | null;
 /** What reads.ts knows of a reader, handed over so both judge them the same way. */
@@ -271,7 +272,7 @@ export function todayRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Conte
     // club is still in practice or has said where it's coming from. A club that never moves in stops seeing it at
     // go-live; Settings links to it either way. The menu shows it only to those who may run the move (move.step).
     const mv = await db.selectFrom("move_in").select(["source", "finished_at"]).executeTakeFirst();
-    const moving = !mv?.finished_at && (process.env.KUMI_PRACTICE === "1" || Boolean(mv?.source));
+    const moving = !mv?.finished_at && (setting("PRACTICE") === "1" || Boolean(mv?.source));
     return c.json({ approvals: of("approvals"), questions: of("questions"), today: ns.reduce((s, x) => s + x.count, 0), disputes: of("disputes"), moving });
   });
 

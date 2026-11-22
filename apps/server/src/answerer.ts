@@ -11,6 +11,7 @@
 // answer_decision row): change any of them and bump it, so decisions before and after can be compared.
 import Anthropic from "@anthropic-ai/sdk";
 import type { Answerer, AnswerCandidate, AnswerChoice } from "@kumi/core";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -124,19 +125,19 @@ function errorText(e: unknown): string {
   return err?.name === "TimeoutError" || err?.name === "AbortError" || e instanceof Anthropic.APIConnectionTimeoutError ? "timed out" : String(err?.message ?? e).slice(0, 120);
 }
 
-/** The models the server's settings turn on: KUMI_TYPESAFE_API_KEY (Jev), KUMI_ANTHROPIC_API_KEY (Claude Haiku). */
+/** The models the server's settings turn on: OPENPADEL_TYPESAFE_API_KEY (Jev), OPENPADEL_ANTHROPIC_API_KEY (Claude Haiku). */
 export function answerModels(env: Env): ("jev" | "haiku")[] {
-  return [...(env.KUMI_TYPESAFE_API_KEY?.trim() ? ["jev" as const] : []), ...(env.KUMI_ANTHROPIC_API_KEY?.trim() ? ["haiku" as const] : [])];
+  return [...(setting("TYPESAFE_API_KEY", env)?.trim() ? ["jev" as const] : []), ...(setting("ANTHROPIC_API_KEY", env)?.trim() ? ["haiku" as const] : [])];
 }
 export function answererFromEnv(env: Env, fetchFn?: Fetch, onUsage?: OnUsage): Answerer | null {
-  const ts = env.KUMI_TYPESAFE_API_KEY?.trim(), an = env.KUMI_ANTHROPIC_API_KEY?.trim();
+  const ts = setting("TYPESAFE_API_KEY", env)?.trim(), an = setting("ANTHROPIC_API_KEY", env)?.trim();
   return makeAnswerer([...(ts ? [jevProvider(ts, fetchFn)] : []), ...(an ? [haikuProvider(an, fetchFn)] : [])], Date.now, onUsage);
 }
 
 /** For `kumi doctor`: does each model take its key? Listing models is free on both, so nothing is spent. */
 export async function checkAnswerKeys(env: Env, fetchFn: Fetch = fetch): Promise<{ model: "jev" | "haiku"; error: string | null }[]> {
   const out: { model: "jev" | "haiku"; error: string | null }[] = [];
-  const ts = env.KUMI_TYPESAFE_API_KEY?.trim(), an = env.KUMI_ANTHROPIC_API_KEY?.trim();
+  const ts = setting("TYPESAFE_API_KEY", env)?.trim(), an = setting("ANTHROPIC_API_KEY", env)?.trim();
   if (ts) {
     try { const r = await fetchFn(`${JEV_URL}/models`, { headers: { authorization: `Bearer ${ts}` }, signal: AbortSignal.timeout(5000) }); out.push({ model: "jev", error: r.ok ? null : `HTTP ${r.status}` }); }
     catch (e) { out.push({ model: "jev", error: errorText(e) }); }

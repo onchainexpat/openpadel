@@ -14,25 +14,26 @@ import { answererFromEnv, answerModels } from "./answerer.ts";
 import { modelFromEnv } from "./assistant.ts";
 import { setTranslator, translatorFromEnv } from "./translate.ts";
 import { describeListen, listen, listenFrom, type Listen } from "./listen.ts";
+import { setting } from "@kumi/core";
 
 // The server's key for the secrets it keeps (authenticators, the push key, the vault: sealed.ts). Production
 // refuses to start without one; elsewhere secrets are kept as they are, and it says so.
 const production = process.env.NODE_ENV === "production";
-if (!process.env.KUMI_SECRET_KEY?.trim()) {
-  if (production) { console.error("KUMI_SECRET_KEY isn't set: make one (head -c 32 /dev/urandom | base64) and put it in the server's settings"); process.exit(1); }
-  console.warn("no KUMI_SECRET_KEY: secrets are kept unsealed (fine for development, never for a club)");
+if (!setting("SECRET_KEY")?.trim()) {
+  if (production) { console.error("OPENPADEL_SECRET_KEY isn't set: make one (head -c 32 /dev/urandom | base64) and put it in the server's settings"); process.exit(1); }
+  console.warn("no OPENPADEL_SECRET_KEY: secrets are kept unsealed (fine for development, never for a club)");
 }
-try { setSecretKeys({ current: process.env.KUMI_SECRET_KEY, previous: process.env.KUMI_SECRET_KEY_PREVIOUS }); }
-catch (e) { console.error(`KUMI_SECRET_KEY: ${(e as Error).message}`); process.exit(1); }
-// What AI, texts and email cost, for the club's monthly meter (usage.ts): list prices unless KUMI_PRICES says
+try { setSecretKeys({ current: setting("SECRET_KEY"), previous: setting("SECRET_KEY_PREVIOUS") }); }
+catch (e) { console.error(`OPENPADEL_SECRET_KEY: ${(e as Error).message}`); process.exit(1); }
+// What AI, texts and email cost, for the club's monthly meter (usage.ts): list prices unless OPENPADEL_PRICES says
 // otherwise (a host's own prices, or a club's deal with its providers).
-try { setPrices(parsePrices(process.env.KUMI_PRICES)); }
+try { setPrices(parsePrices(setting("PRICES"))); }
 catch (e) { console.error((e as Error).message); process.exit(1); }
 
 // Live with no email key, sign-in codes would only be written to the log, readable by anyone who can read it:
 // refuse to start instead. In practice (and development) the log is how the owner signs in before email is set up.
-if (!process.env.KUMI_RESEND_API_KEY && production && process.env.KUMI_PRACTICE !== "1") {
-  console.error("email isn't set up (KUMI_RESEND_API_KEY and KUMI_MAIL_FROM): live, members' sign-in codes would only go to the log. Set up email (docs/setup/accounts/resend.md), or keep KUMI_PRACTICE=1 until it is.");
+if (!setting("RESEND_API_KEY") && production && setting("PRACTICE") !== "1") {
+  console.error("email isn't set up (OPENPADEL_RESEND_API_KEY and OPENPADEL_MAIL_FROM): live, members' sign-in codes would only go to the log. Set up email (docs/setup/accounts/resend.md), or keep OPENPADEL_PRACTICE=1 until it is.");
   process.exit(1);
 }
 const db = connect();
@@ -48,7 +49,7 @@ try { const pt = await plainStoredText(db); if (pt.names || pt.giftCards) consol
 catch (e) { console.error("names: couldn't make saved names plain:", (e as Error).message); }
 const sealed = await resealAll(db);
 if (sealed.sealed || sealed.resealed) console.log(`secrets: ${sealed.sealed} sealed, ${sealed.resealed} moved to the current key`);
-if (sealed.unreadable) console.error(`secrets: ${sealed.unreadable} sealed under a key this server doesn't have (set KUMI_SECRET_KEY_PREVIOUS to the old key)`);
+if (sealed.unreadable) console.error(`secrets: ${sealed.unreadable} sealed under a key this server doesn't have (set OPENPADEL_SECRET_KEY_PREVIOUS to the old key)`);
 // Accounts a restore brought back (an update's snapshot put back by release.sh queues them): deleted again (privacy.ts).
 const erasedAgain = await eraseAfterRestore(db);
 if (erasedAgain.erased) console.log(`privacy: ${erasedAgain.erased} account${erasedAgain.erased === 1 ? "" : "s"} deleted before a restore deleted again`);
@@ -56,17 +57,17 @@ if (erasedAgain.erased) console.log(`privacy: ${erasedAgain.erased} account${era
 let listenAt: Listen;
 try { listenAt = listenFrom(process.env); } catch (e) { console.error((e as Error).message); process.exit(1); }
 const port = "port" in listenAt ? listenAt.port : 8790;
-const publicUrl = process.env.KUMI_PUBLIC_URL ?? `http://127.0.0.1:${port}`;
+const publicUrl = setting("PUBLIC_URL") ?? `http://127.0.0.1:${port}`;
 // What members are sent: the members' app's address, not the staff app's (addresses.ts).
 const membersUrl = memberUrl(publicUrl);
 // Someone given a staff role is told by email where the staff app is (messages.ts).
 setStaffAddress(publicUrl);
 
 // Card payments go through Stripe when a key is set (from the environment, never the database or the
-// code); otherwise the stand-in. Self-hosted, the key is the club's own. Hosted (KUMI_STRIPE_CONNECT=1),
+// code); otherwise the stand-in. Self-hosted, the key is the club's own. Hosted (OPENPADEL_STRIPE_CONNECT=1),
 // it's Kumi's platform key and payments go into the club's own connected account. A live key is
 // refused outside production.
-const stripeKey = process.env.KUMI_STRIPE_SECRET_KEY, connectMode = process.env.KUMI_STRIPE_CONNECT === "1";
+const stripeKey = setting("STRIPE_SECRET_KEY"), connectMode = setting("STRIPE_CONNECT") === "1";
 let stripe: StripeProvider | null = null;
 if (stripeKey) {
   stripe = new StripeProvider({ secretKey: stripeKey, ...(connectMode ? { connect: clubStripeAccount(db) } : {}) });
@@ -74,7 +75,7 @@ if (stripeKey) {
   setPaymentProvider(stripe);
   console.log(`payments: stripe (${stripe.live ? "live" : "test mode"}${connectMode ? ", the club's connected account" : ""})`);
 }
-const stripeConfig = { publishableKey: process.env.KUMI_STRIPE_PUBLISHABLE_KEY, webhookSecret: process.env.KUMI_STRIPE_WEBHOOK_SECRET };
+const stripeConfig = { publishableKey: setting("STRIPE_PUBLISHABLE_KEY"), webhookSecret: setting("STRIPE_WEBHOOK_SECRET") };
 // Apple Pay and Google Pay show on the members' card form only on a domain registered with Stripe (on the club's own
 // account under Connect). The jobs below register it until it's done: at start, or once a connected club's
 // account exists. Nothing to do on a laptop or a name Stripe can't register.
@@ -90,34 +91,34 @@ const registerWallets = async () => {
   walletDone = where;
   console.log(`payments: ${walletHost} registered for Apple Pay (${d.applePay}) and Google Pay (${d.googlePay})${d.problem ? `: ${d.problem}` : ""}`);
 };
-// Email: with a Resend key, from the club's own domain (KUMI_MAIL_FROM, like "Kestrel Padel <hello@kestrelpadel.com>").
-// Outside production, or with KUMI_PRACTICE=1, it only reaches KUMI_MAIL_TEST_TO (comma-separated); without a key it stays in the log.
+// Email: with a Resend key, from the club's own domain (OPENPADEL_MAIL_FROM, like "Kestrel Padel <hello@kestrelpadel.com>").
+// Outside production, or with OPENPADEL_PRACTICE=1, it only reaches OPENPADEL_MAIL_TEST_TO (comma-separated); without a key it stays in the log.
 let mailer: Mailer = new MemoryMailer(true);
 let mailReach: "sent" | "log" | "practice" = "log";
-if (process.env.KUMI_RESEND_API_KEY) {
-  const from = process.env.KUMI_MAIL_FROM;
-  if (!from) { console.error("KUMI_RESEND_API_KEY needs KUMI_MAIL_FROM, the address on the club's own domain"); process.exit(1); }
+if (setting("RESEND_API_KEY")) {
+  const from = setting("MAIL_FROM");
+  if (!from) { console.error("OPENPADEL_RESEND_API_KEY needs OPENPADEL_MAIL_FROM, the address on the club's own domain"); process.exit(1); }
   // Each email Resend takes counts on the club's monthly meter (usage.ts); held practice email doesn't.
-  const resend = new MeteredMailer(new ResendMailer({ apiKey: process.env.KUMI_RESEND_API_KEY, from, replyTo: process.env.KUMI_MAIL_REPLY_TO }), db);
-  const testTo = (process.env.KUMI_MAIL_TEST_TO ?? "").split(",");
+  const resend = new MeteredMailer(new ResendMailer({ apiKey: setting("RESEND_API_KEY")!, from, replyTo: setting("MAIL_REPLY_TO") }), db);
+  const testTo = (setting("MAIL_TEST_TO") ?? "").split(",");
   // A trial server runs in production mode (HTTPS cookies) but still in practice until the club switches over.
-  const practice = !production || process.env.KUMI_PRACTICE === "1";
+  const practice = !production || setting("PRACTICE") === "1";
   mailer = practice ? new PracticeMailer(resend, testTo) : resend;
   mailReach = practice ? "practice" : "sent";
   console.log(`email: resend from ${from}${practice ? `, practice: only to ${testTo.filter(Boolean).length} test addresses` : ""}`);
 }
 // Texts: through the club's own Twilio account when it's set up (twilio.ts). In practice, like email, only the
-// club's test numbers (KUMI_SMS_TEST_TO, comma-separated) get them; the rest are held and logged.
+// club's test numbers (OPENPADEL_SMS_TEST_TO, comma-separated) get them; the rest are held and logged.
 // Who texts are from: the settings file's sender, or else the Messaging Service `kumi texting` registered, from
 // the moment Twilio approves it (texting.ts asks every hour while the review runs).
 let twilio: ReturnType<typeof twilioFromEnv> = null;
 try { twilio = twilioFromEnv(process.env); } catch (e) { console.error(`texts: ${(e as Error).message}`); process.exit(1); }
 let sending: Texter | null = null;
 const startTexts = (cfg: TwilioConfig) => {
-  const practice = !production || process.env.KUMI_PRACTICE === "1", testTo = (process.env.KUMI_SMS_TEST_TO ?? "").split(",");
+  const practice = !production || setting("PRACTICE") === "1", testTo = (setting("SMS_TEST_TO") ?? "").split(",");
   sending = practice ? new PracticeTexter(new TwilioTexter(cfg), testTo) : new TwilioTexter(cfg);
   setTexting(true);
-  console.log(`texts: twilio${cfg.messagingServiceSid && !process.env.KUMI_TWILIO_MESSAGING_SERVICE_SID ? ", from the registered Messaging Service" : ""}${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
+  console.log(`texts: twilio${cfg.messagingServiceSid && !setting("TWILIO_MESSAGING_SERVICE_SID") ? ", from the registered Messaging Service" : ""}${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
 };
 const twilioApi = twilio ? new TwilioApi(twilio.accountSid, twilio.authToken) : null;
 if (twilio) {
@@ -130,7 +131,7 @@ if (twilio) {
 let textingNext = 0;   // when to ask Twilio about the texting registration again
 let watchNext = 0, numberNext = 0, tidyNext = 0;     // when to look at texts and ask the club's answers again (every 5 minutes)
 const texter: Texter | null = twilio ? { send: (x) => { if (!sending) throw new TextError("no_sender", "texts aren't set up to send yet", false); return sending.send(x); } } : null;
-// Ask the club: with a decision model's key (KUMI_TYPESAFE_API_KEY for Jev, KUMI_ANTHROPIC_API_KEY for Claude
+// Ask the club: with a decision model's key (OPENPADEL_TYPESAFE_API_KEY for Jev, OPENPADEL_ANTHROPIC_API_KEY for Claude
 // Haiku, or both), Kumi answers a new question from the club's facts, word for word, or hands it to the staff
 // (answerer.ts). The club can still switch it off in Settings. Without a key every question goes to the staff.
 // Each model's answer counts on the club's monthly meter (usage.ts).
@@ -142,16 +143,16 @@ setTranslator(translatorFromEnv(process.env));
 // and the apps say how to turn it on.
 const assistant = modelFromEnv(process.env);
 if (assistant) console.log("ask openpadel: on (Claude Sonnet for staff, Claude Haiku for members)");
-// Bot protection on sign-up, sign-in codes and checkout. KUMI_BOT_CHECK=0 leaves it off on a practice
+// Bot protection on sign-up, sign-in codes and checkout. OPENPADEL_BOT_CHECK=0 leaves it off on a practice
 // machine (scripts that sign in over the API); production refuses to start that way.
-const botCheck = process.env.KUMI_BOT_CHECK !== "0";
-if (!botCheck && production) { console.error("KUMI_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
+const botCheck = setting("BOT_CHECK") !== "0";
+if (!botCheck && production) { console.error("OPENPADEL_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
 // The session cookie's old name, still read (and moved) over HTTPS for one release (session_cookie.ts).
-const legacySessionCookie = process.env.KUMI_LEGACY_SESSION_COOKIE !== "0";
-const server = await listen(makeApp({ assistant, db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, pluginCatalogUrl: process.env.KUMI_PLUGIN_CATALOG_URL || null, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
-  emailEvents: { secret: process.env.KUMI_RESEND_WEBHOOK_SECRET || null, from: process.env.KUMI_MAIL_FROM || null },
+const legacySessionCookie = setting("LEGACY_SESSION_COOKIE") !== "0";
+const server = await listen(makeApp({ assistant, db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, pluginCatalogUrl: setting("PLUGIN_CATALOG_URL") || null, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
+  emailEvents: { secret: setting("RESEND_WEBHOOK_SECRET") || null, from: setting("MAIL_FROM") || null },
   ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, listenAt);
-// With KUMI_PLUGIN_CATALOG_URL unset, a production server reads openPadel's own catalog online (the bundled sample offline).
+// With OPENPADEL_PLUGIN_CATALOG_URL unset, a production server reads openPadel's own catalog online (the bundled sample offline).
 if (production) setPluginIo({ ownCatalogOnline: true });
 console.log(`kumi server on ${describeListen(listenAt, server)}`);
 
@@ -163,7 +164,7 @@ useWebhookRules(production);
 // A local plugin (plugins.ts) gets its events on this server's loopback, at its own port and nowhere else there.
 const postWebhook = webhookPost(production, async (u) => Boolean(await db.selectFrom("plugin").select("id").where("mode", "=", "local").where("status", "!=", "removed")
   .where("local_port", "=", Number(u.port)).executeTakeFirst()));
-const pushContact = process.env.KUMI_PUSH_CONTACT ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
+const pushContact = setting("PUSH_CONTACT") ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
 const jobsState = newJobsState();
 const jobSteps: JobStep[] = [
   // A change to the club's currency or formats reaches every message within a round.
@@ -389,13 +390,13 @@ void jobs();
 // The read-only Playtomic mirror, when the club has given Kumi its Third Party API keys (through the
 // environment, never the database or the code). One sync at a time, then a rest; pages are a minute apart.
 // Each sync reads the near window, then at most one 30-day slice of what's further ahead (as far as Kumi has
-// anything on a court, or members can book), each slice again after KUMI_MIRROR_FAR_EVERY_HOURS.
-const pt = { clientId: process.env.KUMI_PLAYTOMIC_CLIENT_ID, secret: process.env.KUMI_PLAYTOMIC_SECRET, tenantId: process.env.KUMI_PLAYTOMIC_TENANT_ID };
+// anything on a court, or members can book), each slice again after OPENPADEL_MIRROR_FAR_EVERY_HOURS.
+const pt = { clientId: setting("PLAYTOMIC_CLIENT_ID"), secret: setting("PLAYTOMIC_SECRET"), tenantId: setting("PLAYTOMIC_TENANT_ID") };
 if (pt.clientId && pt.secret && pt.tenantId) {
   const num = (v: string | undefined, d: number) => { const n = Number(v); return v !== undefined && v !== "" && Number.isFinite(n) && n >= 0 ? n : d; };
-  const client = new PlaytomicClient({ clientId: pt.clientId, secret: pt.secret, tenantId: pt.tenantId, pageDelayMs: num(process.env.KUMI_MIRROR_PAGE_SECONDS, 60) * 1000 });
-  const every = num(process.env.KUMI_MIRROR_EVERY_MINUTES, 10) * 60_000, daysAhead = num(process.env.KUMI_MIRROR_DAYS_AHEAD, 30);
-  const farEvery = num(process.env.KUMI_MIRROR_FAR_EVERY_HOURS, 6) * 3600_000, farRead = new Map<number, number>();
+  const client = new PlaytomicClient({ clientId: pt.clientId, secret: pt.secret, tenantId: pt.tenantId, pageDelayMs: num(setting("MIRROR_PAGE_SECONDS"), 60) * 1000 });
+  const every = num(setting("MIRROR_EVERY_MINUTES"), 10) * 60_000, daysAhead = num(setting("MIRROR_DAYS_AHEAD"), 30);
+  const farEvery = num(setting("MIRROR_FAR_EVERY_HOURS"), 6) * 3600_000, farRead = new Map<number, number>();
   const day = (d: Date) => d.toISOString().slice(0, 10);
   const loop = async () => {
     try {

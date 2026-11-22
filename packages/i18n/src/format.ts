@@ -52,13 +52,15 @@ export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = 
 }
 
 /** The software is openPadel, and its command is `openpadel` (`kumi` still works). Staff read the product's name, filling
- *  {product}: "openPadel", or "Kumi" when the install is Kumi's hosted service (KUMI_HOSTED=1 on the server; `hosted`
+ *  {product}: "openPadel", or "Kumi" when the install is Kumi's hosted service (OPENPADEL_HOSTED=1 on the server; `hosted`
  *  in /club for the apps). Members never read a product name: they read their club's. */
 export const SOFTWARE = "openPadel";
 export const COMMAND = "openpadel";
 export const HOSTED_NAME = "Kumi";
 export const HOSTED_URL = "https://kumi.club";
-let hostedInstall = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.KUMI_HOSTED === "1";
+const serverEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+// The old name (KUMI_HOSTED) still read, as every setting is (core's settings.ts, which this package can't import).
+let hostedInstall = (serverEnv?.OPENPADEL_HOSTED?.trim() ? serverEnv.OPENPADEL_HOSTED : serverEnv?.KUMI_HOSTED) === "1";
 export function setHosted(on: boolean): void { hostedInstall = on; }
 export const isHosted = (): boolean => hostedInstall;
 export const productName = (): string => (hostedInstall ? HOSTED_NAME : SOFTWARE);

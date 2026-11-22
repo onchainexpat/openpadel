@@ -108,3 +108,4 @@ export * from "./held.ts";
 export * from "./repeats.ts";
 export * from "./support.ts";
 export * from "./email_suppression.ts";
+export * from "./settings.ts";

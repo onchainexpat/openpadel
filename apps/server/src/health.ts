@@ -13,6 +13,7 @@ import { s3FromEnv } from "./s3.ts";
 import { answerModels } from "./answerer.ts";
 import { onSocket } from "./listen.ts";
 import { REVISION, VERSION } from "./version.ts";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
@@ -33,7 +34,7 @@ function disk(path: string) {
 }
 
 export async function deepHealth(db: Db, o: { env?: Env; now?: Date; backupDir?: string } = {}) {
-  const env = o.env ?? process.env, now = o.now ?? new Date(), dir = o.backupDir ?? env.KUMI_BACKUP_DIR ?? "/var/backups/kumi";
+  const env = o.env ?? process.env, now = o.now ?? new Date(), dir = o.backupDir ?? setting("BACKUP_DIR", env) ?? "/var/backups/kumi";
   const problems: string[] = [];
   let database: { ok: boolean; ms: number | null; error?: string };
   const t0 = Date.now();

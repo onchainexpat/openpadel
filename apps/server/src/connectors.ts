@@ -6,7 +6,7 @@
 // reads "added, ends in 4F2A" or missing, and the settings file's own keys only whether they're there.
 import { Hono, type Context } from "hono";
 import { both, type Key, type Lang, type Text } from "@kumi/i18n";
-import { cardsFor, clubAgents, KumiError, type CardSlot, type Db } from "@kumi/core";
+import { cardsFor, clubAgents, KumiError, setting, type CardSlot, type Db } from "@kumi/core";
 import { doctor, type Check } from "./doctor.ts";
 import { pluginsWithHealth } from "./plugins.ts";
 import { gettingStartedView } from "./getting_started.ts";
@@ -17,20 +17,20 @@ type Env = Record<string, string | undefined>;
 /** The built-in services: the doctor checks that judge each (the first is its own), the settings it needs on the
  *  server, where its guide is, and where the staff app looks after it. */
 export const BUILT_INS = [
-  { key: "stripe", name: "Stripe", checks: ["payments", "wallets", "currency"], settings: ["KUMI_STRIPE_SECRET_KEY", "KUMI_STRIPE_PUBLISHABLE_KEY", "KUMI_STRIPE_WEBHOOK_SECRET"],
+  { key: "stripe", name: "Stripe", checks: ["payments", "wallets", "currency"], settings: ["OPENPADEL_STRIPE_SECRET_KEY", "OPENPADEL_STRIPE_PUBLISHABLE_KEY", "OPENPADEL_STRIPE_WEBHOOK_SECRET"],
     doc: "docs/setup/accounts/stripe.md", page: "/payments", sees: "processor.stripe.gets" },
-  { key: "resend", name: "Resend", checks: ["email", "email_domain", "email_reports"], settings: ["KUMI_RESEND_API_KEY", "KUMI_MAIL_FROM", "KUMI_RESEND_WEBHOOK_SECRET"],
+  { key: "resend", name: "Resend", checks: ["email", "email_domain", "email_reports"], settings: ["OPENPADEL_RESEND_API_KEY", "OPENPADEL_MAIL_FROM", "OPENPADEL_RESEND_WEBHOOK_SECRET"],
     doc: "docs/setup/accounts/resend.md", page: null, sees: "processor.resend.gets" },
-  { key: "twilio", name: "Twilio", checks: ["texts"], settings: ["KUMI_TWILIO_ACCOUNT_SID", "KUMI_TWILIO_AUTH_TOKEN", "KUMI_TWILIO_MESSAGING_SERVICE_SID"],
+  { key: "twilio", name: "Twilio", checks: ["texts"], settings: ["OPENPADEL_TWILIO_ACCOUNT_SID", "OPENPADEL_TWILIO_AUTH_TOKEN", "OPENPADEL_TWILIO_MESSAGING_SERVICE_SID"],
     doc: "docs/setup/accounts/twilio.md", page: "/settings#texting", sees: "processor.twilio.gets" },
-  { key: "playtomic", name: "Playtomic", checks: ["playtomic"], settings: ["KUMI_PLAYTOMIC_CLIENT_ID", "KUMI_PLAYTOMIC_SECRET", "KUMI_PLAYTOMIC_TENANT_ID"],
+  { key: "playtomic", name: "Playtomic", checks: ["playtomic"], settings: ["OPENPADEL_PLAYTOMIC_CLIENT_ID", "OPENPADEL_PLAYTOMIC_SECRET", "OPENPADEL_PLAYTOMIC_TENANT_ID"],
     doc: "docs/setup/accounts/playtomic.md", page: "/playtomic", sees: null },
-  { key: "offsite", name: "Offsite backups", checks: ["offsite", "backups", "restore_test"], settings: ["KUMI_OFFSITE_BUCKET", "KUMI_OFFSITE_ACCESS_KEY_ID", "KUMI_OFFSITE_SECRET_ACCESS_KEY", "KUMI_BACKUP_KEY"],
+  { key: "offsite", name: "Offsite backups", checks: ["offsite", "backups", "restore_test"], settings: ["OPENPADEL_OFFSITE_BUCKET", "OPENPADEL_OFFSITE_ACCESS_KEY_ID", "OPENPADEL_OFFSITE_SECRET_ACCESS_KEY", "OPENPADEL_BACKUP_KEY"],
     doc: "docs/setup/accounts/offsite-backups.md", page: null, sees: "processor.offsite.gets" },
 ] as const;
 /** Settings whose last four aren't shown even so: the keys that open the club's backups and sealed secrets, which the
  *  owner keeps in a password manager and nobody else reads (AGENTS.md). */
-const NEVER_LAST4 = new Set(["KUMI_BACKUP_KEY", "KUMI_SECRET_KEY", "KUMI_MAIL_FROM"]);
+const NEVER_LAST4 = new Set(["OPENPADEL_BACKUP_KEY", "OPENPADEL_SECRET_KEY", "OPENPADEL_MAIL_FROM"]);
 
 /** One doctor check as a connector's status: a failure needs attention; off is off; a warning that it's practice, still
  *  waiting (a registration, a first sync) or never run yet is waiting; any other warning needs attention. */
@@ -72,7 +72,7 @@ export async function connectors(db: Db, l: Lang, o: { production: boolean; env?
       sees: b.sees ? both(b.sees as Key)[l] : null, status, health: mine[0] ? said(mine[0].text) : both("connector.not_checked")[l],
       checks: mine.map((c) => ({ id: c.id, state: c.state, status: statusOf(c), text: said(c.text), ...(c.doc ? { doc: c.doc } : {}) })),
       settings: b.settings.map((name) => {
-        const v = env[name]?.trim();
+        const v = setting(name, env)?.trim();
         return { name, added: Boolean(v), last4: v && !NEVER_LAST4.has(name) && v.length >= 12 ? v.slice(-4) : null };
       }),
       doc: b.doc, page: b.page };

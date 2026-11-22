@@ -1,27 +1,28 @@
 // Where the server listens. On a one-server install, 127.0.0.1 and PORT, with Caddy on the same machine in front.
-// In Docker, every address (KUMI_LISTEN_ADDRESS=0.0.0.0), since Caddy is another container. On a server several clubs
-// share, a unix socket (KUMI_SOCKET) in a folder only the club and its proxy can open: there's no port another club's
+// In Docker, every address (OPENPADEL_LISTEN_ADDRESS=0.0.0.0), since Caddy is another container. On a server several clubs
+// share, a unix socket (OPENPADEL_SOCKET) in a folder only the club and its proxy can open: there's no port another club's
 // process could reach, and whoever connects is the proxy, so its X-Forwarded-For is believed (limits.ts).
 import { chmodSync, lstatSync, unlinkSync } from "node:fs";
 import type { Server } from "node:http";
 import { createAdaptorServer } from "@hono/node-server";
+import { setting } from "@kumi/core";
 
 type Env = Record<string, string | undefined>;
 export type Listen = { socket: string } | { address: string; port: number };
 
 export function listenFrom(env: Env = process.env): Listen {
-  const socket = env.KUMI_SOCKET?.trim();
+  const socket = setting("SOCKET", env)?.trim();
   if (socket) {
-    if (!socket.startsWith("/")) throw new Error(`KUMI_SOCKET is the full path of a unix socket, such as /run/kumi/http.sock (not "${socket}")`);
+    if (!socket.startsWith("/")) throw new Error(`OPENPADEL_SOCKET is the full path of a unix socket, such as /run/kumi/http.sock (not "${socket}")`);
     return { socket };
   }
   const port = Number(env.PORT?.trim() || 8790);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`PORT is a number from 0 to 65535 (not "${env.PORT}")`);
-  return { address: env.KUMI_LISTEN_ADDRESS?.trim() || "127.0.0.1", port };
+  return { address: setting("LISTEN_ADDRESS", env)?.trim() || "127.0.0.1", port };
 }
 
 /** Whether requests come only through the club's own unix socket (so the peer is always its proxy). */
-export const onSocket = (env: Env = process.env) => Boolean(env.KUMI_SOCKET?.trim());
+export const onSocket = (env: Env = process.env) => Boolean(setting("SOCKET", env)?.trim());
 
 export function describeListen(l: Listen, server?: Server): string {
   if ("socket" in l) return `unix socket ${l.socket}`;

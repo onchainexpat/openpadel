@@ -5,11 +5,12 @@
 //   secrets.json, readable by this user only (0600).
 // - runs.json: the previews this computer made lately, so `kumi confirm <run_id>` finds its command and a command
 //   run again with --yes does what was previewed once, not twice.
-// All in KUMI_CONFIG_DIR, or ~/.config/kumi (XDG_CONFIG_HOME), or %APPDATA%\kumi on Windows.
+// All in OPENPADEL_CONFIG_DIR, or ~/.config/kumi (XDG_CONFIG_HOME), or %APPDATA%\kumi on Windows.
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { setting } from "@kumi/core";
 
 export interface ClubEntry {
   url: string; issuer: string; resource: string; token_endpoint: string; client_id: string;
@@ -25,7 +26,7 @@ export interface RunEntry { club: string; tool: string; key: string; run_id: str
 interface Clubs { current: string | null; clubs: Record<string, ClubEntry> }
 
 export function configDir(env = process.env): string {
-  if (env.KUMI_CONFIG_DIR) return env.KUMI_CONFIG_DIR;
+  if (setting("CONFIG_DIR", env)) return setting("CONFIG_DIR", env)!;
   if (process.platform === "win32" && env.APPDATA) return join(env.APPDATA, "kumi");
   return join(env.XDG_CONFIG_HOME || join(homedir(), ".config"), "kumi");
 }
@@ -40,7 +41,7 @@ export function clubKey(raw: string): string {
 export class Store {
   readonly dir: string;
   private keychainOn: boolean;
-  constructor(dir = configDir(), keychainOn = process.env.KUMI_CLI_KEYCHAIN !== "0") {
+  constructor(dir = configDir(), keychainOn = setting("CLI_KEYCHAIN") !== "0") {
     this.dir = dir; this.keychainOn = keychainOn;
   }
   private path(name: string) { return join(this.dir, name); }
@@ -58,10 +59,10 @@ export class Store {
 
   clubs(): Clubs { return this.read<Clubs>("clubs.json", { current: null, clubs: {} }); }
   club(key: string): ClubEntry | null { return this.clubs().clubs[key] ?? null; }
-  /** The club a command is for: --club, then KUMI_CLUB, then the one signed in to last (or chosen with kumi use). */
+  /** The club a command is for: --club, then OPENPADEL_CLUB, then the one signed in to last (or chosen with kumi use). */
   pick(flag?: string | null, env = process.env): ClubEntry | null {
     const c = this.clubs();
-    const want = flag || env.KUMI_CLUB || c.current;
+    const want = flag || setting("CLUB", env) || c.current;
     return want ? c.clubs[clubKey(want)] ?? null : null;
   }
   saveClub(e: ClubEntry, tokens: Tokens) {
@@ -153,7 +154,7 @@ export class Store {
 
 // ---- The system keychain ----
 // Linux: secret-tool (libsecret), with the secret on its standard input. A Mac: security, whose -w takes the secret
-// as an argument (the process list shows it for that moment; set KUMI_CLI_KEYCHAIN=0 to keep it in the file instead).
+// as an argument (the process list shows it for that moment; set OPENPADEL_CLI_KEYCHAIN=0 to keep it in the file instead).
 const has = (bin: string) => spawnSync(process.platform === "win32" ? "where" : "which", [bin], { stdio: "ignore" }).status === 0;
 function keychainSet(account: string, secret: string): boolean {
   try {

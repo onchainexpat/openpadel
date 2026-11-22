@@ -27,7 +27,7 @@ export function verifyEmailSignature(raw: string, h: { id?: string | null; times
   });
 }
 
-/** POST /webhooks/resend. Without KUMI_RESEND_WEBHOOK_SECRET it isn't there (404): nothing unsigned is ever read. */
+/** POST /webhooks/resend. Without OPENPADEL_RESEND_WEBHOOK_SECRET it isn't there (404): nothing unsigned is ever read. */
 export function emailEventRoutes(db: Db, o: { secret: string | null; from: string | null; now: () => Date }) {
   const app = new Hono();
   const mine = o.from ? emailDomain(o.from) : null;

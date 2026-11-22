@@ -108,7 +108,7 @@ export function MoveSteps() {
         {s.source === "playtomic" && <section class="card">
           <h2>{t("ui.moving_keys")}</h2>
           <p class="meta">{t("ui.moving_keys_help")}</p>
-          <ul class="plain">{["KUMI_PLAYTOMIC_CLIENT_ID", "KUMI_PLAYTOMIC_SECRET", "KUMI_PLAYTOMIC_TENANT_ID"].map((name) =>
+          <ul class="plain">{["OPENPADEL_PLAYTOMIC_CLIENT_ID", "OPENPADEL_PLAYTOMIC_SECRET", "OPENPADEL_PLAYTOMIC_TENANT_ID"].map((name) =>
             <li class="row"><code>{name}</code><span class={s.connect.has_keys ? "flag" : "flag warn"}>{t(s.connect.has_keys ? "ui.moving_key_there" : "ui.moving_key_missing")}</span></li>)}</ul>
           <p>{!s.connect.mirror ? t("ui.mirror_off") : s.connect.mirror.failed ? t("ui.mirror_failed", { when: fmt(s.connect.mirror.last_sync_at!) }) : t("ui.mirror_ok", { when: fmt(s.connect.mirror.last_sync_at!) })}</p>
           <div class="page-actions"><button type="button" onClick={load}>{t("ui.moving_check_again")}</button><a class="button" href="/playtomic">{t("ui.moving_open_playtomic")}</a></div>

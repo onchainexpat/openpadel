@@ -2,6 +2,7 @@
 // forgetting the counts is fine. Per-email limits (codes per hour, tries per code) live with sign-in.
 import type { Context } from "hono";
 import { onSocket } from "./listen.ts";
+import { setting } from "@kumi/core";
 
 export class RateLimiter {
   private readonly hits = new Map<string, number[]>();
@@ -20,9 +21,9 @@ export class RateLimiter {
 
 /** The address a request came from. Behind Caddy, Caddy's X-Forwarded-For says who it was (Caddy replaces
  *  any the client sent, and the last entry is the one it adds). It's trusted from Caddy on the same machine,
- *  and from any peer when KUMI_TRUST_PROXY=1: Docker's Caddy is another container, and the server's port is
+ *  and from any peer when OPENPADEL_TRUST_PROXY=1: Docker's Caddy is another container, and the server's port is
  *  reachable only from the compose network. From anywhere else the header isn't trusted. On a server shared by
- *  several clubs, each listens on its own unix socket (KUMI_SOCKET) and has no port at all: only its proxy (and
+ *  several clubs, each listens on its own unix socket (OPENPADEL_SOCKET) and has no port at all: only its proxy (and
  *  root) can open the socket, so the header is believed, and without one there's no address to count. */
 /** The network an address speaks for, for counting: an IPv4 address itself, an IPv6 address's /64 (one home or
  *  one server holds a whole /64, so counting its addresses one by one would count nothing). */
@@ -44,6 +45,6 @@ export function clientIp(c: Context<any>, env: Record<string, string | undefined
   const remote: string | undefined = socket.remoteAddress;
   if (!remote) return null;   // a connection already closed
   const local = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
-  const trusted = local || env.KUMI_TRUST_PROXY === "1";
+  const trusted = local || setting("TRUST_PROXY", env) === "1";
   return trusted && forwarded ? forwarded : remote;
 }
