@@ -36,7 +36,8 @@ export function settingFrom(name: string, env: Env = process.env): { value: stri
 
 /** The old names still set (with a value), sorted: for doctor's gentle warning. */
 export function oldNamesInUse(env: Env = process.env): string[] {
-  return Object.keys(env).filter((k) => k.startsWith(OLD_SETTING_PREFIX) && given(env[k])).sort();
+  // Not the test suite's own variables (KUMI_TEST_ADMIN_URL, KUMI_SHAPE_WRITE), which are never a club's settings.
+  return Object.keys(env).filter((k) => k.startsWith(OLD_SETTING_PREFIX) && !/^KUMI_(TEST|SHAPE)_/.test(k) && given(env[k])).sort();
 }
 /** The settings set under both names with different values (short names, sorted): the OPENPADEL_ one is used. */
 export function namesThatDiffer(env: Env = process.env): string[] {
