@@ -6,7 +6,7 @@
 // reads "added, ends in 4F2A" or missing, and the settings file's own keys only whether they're there.
 import { Hono, type Context } from "hono";
 import { both, type Key, type Lang, type Text } from "@kumi/i18n";
-import { cardsFor, clubAgents, KumiError, serviceOf, serviceStatus, setting, settingName, type CardSlot, type Db } from "@kumi/core";
+import { cardsFor, clubAgents, KumiError, onServiceSettingsChange, serviceOf, serviceStatus, setting, settingName, type CardSlot, type Db } from "@kumi/core";
 import { doctor, type Check } from "./doctor.ts";
 import { pluginsWithHealth } from "./plugins.ts";
 import { gettingStartedView } from "./getting_started.ts";
@@ -63,6 +63,8 @@ export async function checksNow(db: Db, env: Env, fresh: boolean): Promise<Check
   return checks;
 }
 export function forgetConnectorChecks(): void { cache = null; }
+// A service's settings changed in this server (its card, its command line): the cards judge it again at once.
+onServiceSettingsChange(forgetConnectorChecks);
 
 /** Everything the club plugs into, in the reader's language. */
 export async function connectors(db: Db, l: Lang, o: { production: boolean; env?: Env; fresh?: boolean; now?: Date }) {

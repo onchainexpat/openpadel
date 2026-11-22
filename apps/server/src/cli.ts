@@ -121,9 +121,17 @@ async function passphrase(prompt: string): Promise<string> {
 
 /** The club's database, with its currency and formats loaded, so amounts print as the club's (¥1,500, not $15.00). */
 async function clubDb(): Promise<Db> {
+  // The server's keys, so what the owner set in the app (the vault) can be read: a service's settings (serviceEnv).
+  try { serverKeys(); } catch { /* a bad key: rotate-key and doctor say so */ }
   const db = connect();
   await loadClubFormat(db).catch(() => {});   // a database not yet set up (or migrated): US dollars, as before
   return db;
+}
+
+/** The settings as the services read them: the settings file, then what the owner set in the app. Just the file when
+ *  the database can't be reached (a server being restored). */
+async function appEnv(): Promise<Record<string, string | undefined>> {
+  try { const db = await clubDb(); try { return await serviceEnv(db); } finally { await db.destroy(); } } catch { return process.env; }
 }
 
 /** The currency and formats of the club in a database (one just restored): loaded for this process. */
@@ -329,7 +337,9 @@ async function main(): Promise<number> {
   if (cmd === "texting" && (sub === "plan" || sub === "apply" || sub === "status")) {
     // Needs the club's live Twilio keys in the settings file; the business details come from club.yaml.
     let tw;
-    try { tw = twilioFromEnv(process.env); } catch (e) { console.error((e as Error).message); return 2; }
+    // The Twilio account from the settings file, or as the owner set it up in the app.
+    const twEnv = await appEnv();
+    try { tw = twilioFromEnv(twEnv); } catch (e) { console.error((e as Error).message); return 2; }
     if (!tw) { if (json) out({ ok: false, error: t(lang, "texting.no_twilio") }); else console.error(t(lang, "texting.no_twilio")); return 2; }
     const path = resolve(setting("CALLER_DIR") ?? ".", rest[0] ?? setting("CLUB_FILE") ?? "club.yaml");
     let file;
@@ -630,7 +640,7 @@ async function main(): Promise<number> {
       if (label && !/^[A-Za-z0-9._-]+$/.test(label)) { console.error(t(lang, "cli.bad_label")); return 2; }
       // A labelled dump (before an update, say) stays here: it isn't tonight's backup and doesn't go offsite.
       const r = label ? { file: (await makeBackup(db, { url: dbUrl(), dir: backupDir, label })).file, offsite: null }
-        : await nightlyBackup(db, { url: dbUrl(), dir: backupDir, s3: s3FromEnv(process.env) });
+        : await nightlyBackup(db, { url: dbUrl(), dir: backupDir, s3: s3FromEnv(await serviceEnv(db)) });
       if (json) { out({ ok: true, file: r.file, offsite: r.offsite }); return 0; }
       console.log(t(lang, "cli.backup_done", { file: r.file }));
       console.log(r.offsite ? t(lang, "cli.backup_offsite", { key: r.offsite.key }) : t(lang, "cli.backup_no_offsite"));
@@ -641,7 +651,7 @@ async function main(): Promise<number> {
     } finally { await db.destroy(); }
   }
   if (cmd === "offsite") {
-    const cfg = s3FromEnv(process.env);
+    const cfg = s3FromEnv(await appEnv());
     if (!cfg) { if (json) out({ ok: false, on: false }); else console.log(t(lang, "cli.offsite_off")); return 0; }
     const objects = (await new S3Client(cfg).list(offsitePrefix())).sort((a, b) => a.key.localeCompare(b.key));
     if (json) { out({ ok: true, bucket: cfg.bucket, objects }); return 0; }
@@ -649,7 +659,7 @@ async function main(): Promise<number> {
     for (const o of objects) console.log(`  ${o.key}  ${(o.size / 1048576).toFixed(1)} MB  ${o.lastModified}`);
     return 0;
   }
-  if (cmd === "pitr") return pitrMain(sub, args, lang, json);
+  if (cmd === "pitr") return pitrMain(sub, args, lang, json, await appEnv());
   // A minute, not a file. On a one-server install the root wrapper (sudo kumi restore --to=...) takes that copy from the
   // archive as the postgres user first, then restores it here as a file. Docker's pitr service is that user already
   // (OPENPADEL_PITR_INLINE=1): it takes the copy and restores it here, with the server stopped first.
@@ -676,7 +686,7 @@ async function main(): Promise<number> {
         const d = await scheduledDue(db, "restore_test");
         if (!d.due) { if (json) out({ ok: true, due: false, time_zone: d.tz }); return 0; }
       }
-      const cfg = s3FromEnv(process.env);
+      const cfg = s3FromEnv(await serviceEnv(db));
       const r = await restoreTest(db, { liveUrl: dbUrl(), dir: backupDir, s3: cfg ? new S3Client(cfg) : null, key: backupKey(), prefix: offsitePrefix() });
       if (json) { out(r); return r.ok ? 0 : 1; }
       if (r.ok) console.log(t(lang, "cli.restore_test_ok", { source: r.source, tables: r.tables, rows: r.rows, against: t(lang, r.compared === "manifest" ? "cli.against_manifest" : "cli.against_live") }));
@@ -737,7 +747,9 @@ async function restoreFrom(source: string): Promise<number> {
   let got: { file: string; cleanup: () => void };
   try {
     if (source.startsWith("offsite:")) {
-      const cfg = s3FromEnv(process.env), key = backupKey();
+      // The storage from the settings file, or from the app while this database still has it (a new server after a
+      // lost one has neither: its owner types the storage's settings into the settings file, docs/setup/accounts/offsite-backups.md).
+      const cfg = s3FromEnv(await appEnv()), key = backupKey();
       if (!cfg) { console.error(t(lang, "cli.offsite_off")); return 2; }
       if (!key) { console.error(t(lang, "cli.restore_no_backup_key")); return 2; }
       const s3 = new S3Client(cfg);

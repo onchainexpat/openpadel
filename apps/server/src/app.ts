@@ -15,7 +15,7 @@ import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
 import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, type Lang } from "@kumi/i18n";
 import { comingFrom } from "@kumi/i18n/presets";
-import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, isYesWaiting, decline, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, type Actor, type Db, type Texter } from "@kumi/core";
+import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, isYesWaiting, decline, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, serviceEnv, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, LINK_MINUTES, phoneSignInOn, signInLinkTarget, useSignInLink, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
@@ -253,7 +253,7 @@ export function makeApp(deps: AppDeps) {
   // The fuller picture (backups, outbox, disk): from the server itself, or for an owner or manager (health.ts).
   app.get("/health/deep", async (c) => {
     await mayReadDeepHealth(db, c, c.get("me")?.id ?? null);
-    const h = await deepHealth(db, { now: now() });
+    const h = await deepHealth(db, { now: now(), env: await serviceEnv(db) });
     return c.json(h, h.ok ? 200 : 503);
   });
   app.route("/", manifestRoutes(db));
