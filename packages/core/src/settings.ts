@@ -34,12 +34,21 @@ export function settingFrom(name: string, env: Env = process.env): { value: stri
   return { value: old ?? now, from: null, differs: false };
 }
 
-/** The old names still set (with a value), sorted: for doctor's gentle warning. */
+/** The Docker image's own defaults (the Dockerfile keeps them under their KUMI_ names, so a club's .env wins under
+ *  either name): OPENPADEL_IMAGE_DEFAULTS lists them as NAME=value, space-separated. */
+export function imageDefaults(env: Env = process.env): Map<string, string> {
+  return new Map((env.OPENPADEL_IMAGE_DEFAULTS ?? "").split(/\s+/).filter((x) => x.includes("=")).map((x) => [x.slice(0, x.indexOf("=")), x.slice(x.indexOf("=") + 1)] as [string, string]));
+}
+/** The old names the club still sets (with a value), sorted: for doctor's gentle warning. Not the image's defaults
+ *  (one the club's .env didn't change still has the image's value), nor the test suite's own variables. */
 export function oldNamesInUse(env: Env = process.env): string[] {
-  // Not the test suite's own variables (KUMI_TEST_ADMIN_URL, KUMI_SHAPE_WRITE), which are never a club's settings.
-  return Object.keys(env).filter((k) => k.startsWith(OLD_SETTING_PREFIX) && !/^KUMI_(TEST|SHAPE)_/.test(k) && given(env[k])).sort();
+  const image = imageDefaults(env);
+  return Object.keys(env).filter((k) => k.startsWith(OLD_SETTING_PREFIX) && !/^KUMI_(TEST|SHAPE)_/.test(k) && given(env[k]) && image.get(k) !== env[k]).sort();
 }
 /** The settings set under both names with different values (short names, sorted): the OPENPADEL_ one is used. */
 export function namesThatDiffer(env: Env = process.env): string[] {
-  return Object.keys(env).filter((k) => k.startsWith(SETTING_PREFIX)).map(shortName).filter((s) => settingFrom(s, env).differs).sort();
+  // An image default under the old name isn't the club's: its OPENPADEL_ value replacing it is the point.
+  const image = imageDefaults(env);
+  return Object.keys(env).filter((k) => k.startsWith(SETTING_PREFIX)).map(shortName)
+    .filter((s) => settingFrom(s, env).differs && image.get(OLD_SETTING_PREFIX + s) !== env[OLD_SETTING_PREFIX + s]).sort();
 }

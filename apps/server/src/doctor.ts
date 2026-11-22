@@ -26,7 +26,7 @@ export async function doctor(db: Db, fileEnv: Env = process.env, deps: { fetch?:
   // Every check reads the settings as the services do: the settings file, then what the owner set in the app (the vault).
   const env = await serviceEnv(db, fileEnv);
   const checks: Check[] = [], now = deps.now ?? new Date(), production = env.NODE_ENV === "production";
-  // Docker installs (the image sets OPENPADEL_INSTALL=docker) run backups from a service, not systemd timers.
+  // Docker installs (the image sets KUMI_INSTALL=docker, read as OPENPADEL_INSTALL) run backups from a service, not systemd timers.
   const docker = setting("INSTALL", env) === "docker", opsDoc = docker ? "deploy/docker/README.md" : "deploy/README.md", d = docker ? "_docker" : "";
   const add = (id: string, state: CheckState, key: string, params: Params = {}, doc?: string) =>
     checks.push({ id, state, text: both(`doctor.${key}` as Key, params), key, ...(doc ? { doc } : {}) });

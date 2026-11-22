@@ -265,3 +265,32 @@ test("update.sh rename-settings: .env's old names to new, a copy kept, no value 
     assert.equal(readdirSync(dir).filter((f) => f.startsWith(".env.before-rename-")).length, 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("Docker: the image's defaults never beat a club's .env, under its old KUMI_ name or the new one, and doctor's old-names warning leaves them out", async () => {
+  const { setting, oldNamesInUse, namesThatDiffer } = await import("@kumi/core");
+  const docker = read("Dockerfile");
+  // Each stage's environment, as `ENV` lines set it (one per stage that runs the server's code).
+  const stages = docker.split(/^FROM /m).slice(1).map((st) => {
+    const env: Record<string, string> = {};
+    for (const m of st.matchAll(/^ENV ((?:[^\n]*\\\n)*[^\n]*)/gm)) for (const kv of m[1]!.replace(/\\\n/g, " ").matchAll(/([A-Z_]+)=("[^"]*"|\S+)/g)) env[kv[1]!] = kv[2]!.replace(/^"|"$/g, "");
+    return env;
+  }).filter((e) => e.OPENPADEL_IMAGE_DEFAULTS);
+  assert.equal(stages.length, 2, "the server's stage and the pitr stage");
+  for (const image of stages) {
+    // The defaults are the old names, and the list doctor reads has each of them with its value.
+    assert.ok(!Object.keys(image).some((k) => k.startsWith("OPENPADEL_") && k !== "OPENPADEL_IMAGE_DEFAULTS"), "no image default under a new name");
+    const listed = Object.fromEntries(image.OPENPADEL_IMAGE_DEFAULTS!.split(" ").map((x) => x.split("=") as [string, string]));
+    assert.deepEqual(listed, Object.fromEntries(Object.entries(image).filter(([k]) => k.startsWith("KUMI_"))));
+    assert.deepEqual(oldNamesInUse(image), [], "the image's own defaults: no warning");
+    // A club's .env replaces the image's values (compose's env_file wins over ENV): its old name, or its new one.
+    const name = Object.keys(listed).find((k) => k === "KUMI_BACKUP_DIR" || k === "KUMI_CLUB_FILE")!, short = name.slice(5);
+    const old = { ...image, [name]: "/srv/club/own" };
+    assert.equal(setting(short, old), "/srv/club/own", "an old .env's KUMI_ value still applies");
+    assert.deepEqual(oldNamesInUse(old), [name], "and doctor asks, gently, to rename what the club set");
+    const renamed = { ...image, [`OPENPADEL_${short}`]: "/srv/club/own" };
+    assert.equal(setting(short, renamed), "/srv/club/own");
+    assert.deepEqual(oldNamesInUse(renamed), []);
+    assert.deepEqual(namesThatDiffer(renamed), [], "the new name over the image's default isn't set twice");
+    assert.equal(setting(short, image), listed[name], "and without the club's, the image's default");
+  }
+});

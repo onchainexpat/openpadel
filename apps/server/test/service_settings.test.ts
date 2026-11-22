@@ -308,3 +308,11 @@ test("a change to a service's settings is undone from Changes like any other: th
   forgetServiceSettings();
   assert.equal((await serviceSetting(db, "PLAYTOMIC_SECRET", {})).value, "first-playtomic-secret-1111");
 });
+
+test("doctor in the Docker image: no old-names warning for the image's own KUMI_ defaults, only for what the club set", async () => {
+  const image = { KUMI_INSTALL: "docker", KUMI_BACKUP_DIR: "/var/lib/kumi-pitr", OPENPADEL_IMAGE_DEFAULTS: "KUMI_INSTALL=docker KUMI_BACKUP_DIR=/var/lib/kumi-pitr", OPENPADEL_PRACTICE: "1" };
+  const deps = { fetch: fakeFetch as any, resolveTxt: async () => [] };
+  assert.equal((await doctor(db, image, deps)).find((c) => c.id === "setting_names"), undefined);
+  assert.equal((await doctor(db, { ...image, OPENPADEL_BACKUP_DIR: "/srv/backups" }, deps)).find((c) => c.id === "setting_names"), undefined);
+  assert.equal((await doctor(db, { ...image, KUMI_BACKUP_DIR: "/srv/backups" }, deps)).find((c) => c.id === "setting_names")!.state, "warn");
+});
