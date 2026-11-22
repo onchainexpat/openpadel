@@ -7,7 +7,16 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.8.2 (2026-11-22)
+
+The Schedule from a club owner's first look: a card for each block, and Playtomic copies in their real colours.
+
+### When updating
+Nothing to do.
+
+### Added
+- **An issue form for clubs** on GitHub ("From a club using openPadel"): where it happened, what happened, the
+  openPadel version, and a box confirming the issue names no member, player or staff.
 
 ### Changed
 - **The Schedule's blocks have a card.** Resting the mouse on a block for a moment, or reaching it with the keyboard,
