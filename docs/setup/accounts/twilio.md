@@ -16,6 +16,9 @@ segment where it can.
 US carriers block texts from numbers that aren't registered. **Until the club's registration is approved,
 real texts won't reach anyone.** openPadel turns texts on by itself when Twilio approves.
 
+
+> **Putting the keys in:** the owner pastes them on the Twilio card in the staff app (Settings, Connectors, **Set up**), or the agent pipes them in from a password manager with `openpadel connect twilio --set <field> --from-stdin`; the settings file below is the third way, and wins when it has a value. See ["Putting a service's keys in"](../README.md#putting-a-services-keys-in). Never through the chat.
+
 ## Steps
 
 1. **Owner: create a Twilio account** at twilio.com, just for the club, and upgrade it from the trial (a

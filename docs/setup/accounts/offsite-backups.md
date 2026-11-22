@@ -12,6 +12,9 @@ easily in the free allowance both offer (about 10 GB in 2026; check their pricin
 nothing to download; B2 charges a little past a free daily allowance. Either is fine.
 **`openpadel doctor` checks:** `offsite`, `restore_test`, `backups`.
 
+
+> **Putting the keys in:** the owner pastes them on the Offsite backups card in the staff app (Settings, Connectors, **Set up**), or the agent pipes them in from a password manager with `openpadel connect offsite --set <field> --from-stdin`; the settings file below is the third way, and wins when it has a value. See ["Putting a service's keys in"](../README.md#putting-a-services-keys-in). Never through the chat.
+
 ## Before either: the backup key
 
 Offsite copies are sealed with `OPENPADEL_BACKUP_KEY`, a key of its own, not the server's. `server-setup.sh`

@@ -32,6 +32,41 @@ a club that would rather not run a server (in its pilot now); the club's apps an
   manage at the desk; clinics, socials and Americano, Mexicano and King of the Court nights with waitlists and refunds.
 - Email from your own domain, card payments into your own Stripe account, nightly backups.
 
+## Putting a service's keys in
+
+Every service the club connects (Resend, Stripe, Twilio, Playtomic, the offsite storage, the AI models) needs a
+key or two that the owner makes at the provider. Nobody pastes one into a chat. There are three ways in, in this
+order:
+
+1. **The owner pastes it in the staff app.** Settings, Connectors: each service's card has **Set up** (or **Change**),
+   with its fields, a link to the provider's page where the key is made and the choices to make there. The owner
+   pastes, sees a preview that names each setting and only the last 4 characters of a secret ("ending 4f2a"), and
+   confirms. It's kept sealed in the club's vault (only the owner, with a second step), and the club uses it within
+   a minute, with no restart. **Send a test** on the Resend and Stripe cards checks it works. To send the owner
+   straight to that form, the agent runs `openpadel connect <service> --link` and gives the owner the link it prints
+   (15 minutes, the owner's alone), without opening it.
+2. **The agent pipes it in from a password manager**, on a computer signed in as the owner (`openpadel login
+   <the staff app's address> --device`, allowed with the owner's passkey or authenticator in the last half hour)
+   or on the server as root. The value comes only from what's piped in or an environment variable, never from
+   the command line itself, and it's never printed:
+   ```bash
+   op read "op://Club/Resend/api key" | openpadel connect resend --set api_key --from-stdin
+   bw get password resend-api-key | openpadel connect resend --set api_key --from-stdin
+   OPENPADEL_IN="$(security find-generic-password -w -s resend)" openpadel connect resend --set api_key --from-env OPENPADEL_IN
+   ```
+   It prints the same preview as the app. Show it to the owner, and only on their yes run the
+   `openpadel connect --confirm <id>` it gives. `openpadel connect` alone says what's set for each service and
+   where ("in the app" or "on the server"), never a value.
+3. **The settings file on the server** (`/etc/kumi/kumi.env`), typed in by the owner, as before. A value there
+   wins over the app's, so a server set up before keeps working and the owner can pin one; `openpadel doctor` and
+   the card say where each value comes from. Two keys only ever go here: `OPENPADEL_SECRET_KEY`, which seals the
+   vault, and `OPENPADEL_BACKUP_KEY`, which opens the backups the vault is in.
+
+The fields for `--set` are each service's: `stripe` secret_key, publishable_key, webhook_secret; `resend` api_key,
+from, webhook_secret; `twilio` account_sid, auth_token, sender; `playtomic` client_id, secret, tenant_id;
+`offsite` endpoint, bucket, key_id, secret; `ai` typesafe_api_key, anthropic_api_key. A live Stripe key waits for
+go-live: in practice mode, only test keys are taken.
+
 ## The order
 
 Start the slow items first: Stripe checks a new business account before it pays out, which can

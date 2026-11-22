@@ -10,6 +10,9 @@ day, across up to 3 domains. A busy club will pass 100 a day once members use it
 month for 50,000 with no daily limit.
 **`openpadel doctor` checks:** `email`, `email_domain` and `email_reports`.
 
+
+> **Putting the keys in:** the owner pastes them on the Resend card in the staff app (Settings, Connectors, **Set up**), or the agent pipes them in from a password manager with `openpadel connect resend --set <field> --from-stdin`; the settings file below is the third way, and wins when it has a value. See ["Putting a service's keys in"](../README.md#putting-a-services-keys-in). Never through the chat.
+
 ## Steps
 
 1. **Owner: create a Resend account** at resend.com, just for the club. Sharing one with another
@@ -44,7 +47,7 @@ month for 50,000 with no daily limit.
    From then on, an address that bounces for good or marks the club's email as spam gets no more of
    it: the member's app asks them to change it, and the desk can send to it again from the person's
    page once it's fixed. Sign-in codes still go.
-7. **Agent:** `systemctl restart kumi`, then `openpadel doctor`. While `OPENPADEL_PRACTICE=1` is set, only the
+7. **Agent:** `openpadel doctor` (set in the app, it's used within a minute; after editing the settings file, `systemctl restart kumi` first). While `OPENPADEL_PRACTICE=1` is set, only the
    `OPENPADEL_MAIL_TEST_TO` addresses get real email; everyone else's is held and logged.
 8. **Test:** sign in to the staff app as an address on the test list; the code should arrive
    within a minute. Check the spam folder the first time.

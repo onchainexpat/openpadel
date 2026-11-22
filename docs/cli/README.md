@@ -322,6 +322,28 @@ $ openpadel waiver accept
 That one (Accept the waiver) is only ever done in the club's app, never from the command line or an assistant.
 ```
 
+## A service's keys: `openpadel connect`
+
+A key the club needs for a service (Resend, Stripe, Twilio, Playtomic, the offsite storage, the AI models) never goes
+through a chat or onto the command line. Signed in as the owner (`openpadel login <address> --device`, allowed with
+the owner's passkey or authenticator in the last half hour), or on the server as root:
+
+| Command | What it does |
+|---|---|
+| `openpadel connect` | What's set for each service, and where ("in the app" or "on the server"). Never a value. |
+| `openpadel connect resend` | The same, for one service. |
+| `<password manager> \| openpadel connect resend --set api_key --from-stdin` | Previews putting the piped value in the vault: the preview names the setting and the last 4 characters only. Exit 10. |
+| `openpadel connect resend --set api_key --from-env NAME` | The same, from an environment variable (repeat `--set` for more fields, one `--from-stdin` at most). |
+| `openpadel connect resend --remove from` (or `--remove-all`) | Previews taking a setting (or all of them) out of the app. |
+| `openpadel connect --confirm <id>` | Makes the previewed change, once the owner has said yes. |
+| `openpadel connect resend --link` | A link straight to the service's form in the staff app, for the owner (15 minutes). Hand it on; don't open it. |
+
+A value written on the command line itself (`--set api_key=re_...`, or a word after the field) is refused before
+anything is sent: the shell's history and the list of running programs would keep it. With `--json`, the preview has
+`run_id`, `summary` and `next` (the confirm command), and never the value. `/mcp` doesn't take keys at all: an
+assistant in a chat sends the owner to the app's form, or to this command. The fields for each service are in
+[docs/setup/README.md](../setup/README.md#putting-a-services-keys-in).
+
 ## For agents: working with a club
 
 - **Show the person the preview, in its own words, and confirm only once they agree.** Use `--yes` only for what the

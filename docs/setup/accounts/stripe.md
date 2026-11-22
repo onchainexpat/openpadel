@@ -13,6 +13,9 @@ renew from the card the member joined with, charged by openPadel when each perio
 Stripe Billing subscription and no Billing fee on top.
 **`openpadel doctor` checks:** `payments`, `wallets`.
 
+
+> **Putting the keys in:** the owner pastes them on the Stripe card in the staff app (Settings, Connectors, **Set up**), or the agent pipes them in from a password manager with `openpadel connect stripe --set <field> --from-stdin`; the settings file below is the third way, and wins when it has a value. See ["Putting a service's keys in"](../README.md#putting-a-services-keys-in). Never through the chat.
+
 ## Steps
 
 1. **Owner: create the Stripe account** at stripe.com and complete "Activate payments" with the

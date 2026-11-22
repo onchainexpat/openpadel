@@ -11,6 +11,9 @@ a question and answered in under a second, two at most. List prices, November 20
 input tokens, output free; Claude Haiku 5.5 $0.10 per million input tokens and $0.50 per million output.
 **`openpadel doctor` checks:** `answers`.
 
+
+> **Putting the keys in:** the owner pastes them on the AI models card in the staff app (Settings, Connectors, **Set up**), or the agent pipes them in from a password manager with `openpadel connect ai --set <field> --from-stdin`; the settings file below is the third way, and wins when it has a value. See ["Putting a service's keys in"](../README.md#putting-a-services-keys-in). Never through the chat.
+
 ## Which model
 
 - **Jev (TypeSafe)**, the one openPadel asks first: a decision model that says how sure it is that each fact

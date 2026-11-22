@@ -19,9 +19,14 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
    optional piece the club hasn't chosen (texts, Playtomic, ask the club); the `warn`s that say
    practice mode stay until go-live. Follow the order of [`docs/setup/README.md`](docs/setup/README.md),
    not the order of the checks: Stripe comes before texts. Each check names the guide that fixes it.
-2. **Never ask the owner to paste a secret into the chat** (API keys, passwords, codes). Tell them
-   which setting it is and where it goes (`/etc/kumi/kumi.env` on the server), and let them type it
-   there themselves. Never print the settings file or a key. `openpadel export` and restoring an export ask
+2. **Never ask the owner to paste a secret into the chat** (API keys, passwords, codes). Instead, in
+   this order: the owner pastes it on the service's card in the staff app (Settings, Connectors;
+   `openpadel connect <service> --link` gives them a link straight to it, which you hand on without
+   opening); or, with the owner's password manager, you pipe it in with
+   `openpadel connect <service> --set <field> --from-stdin` (never as an argument), show the owner the
+   preview and confirm only on their yes; or the owner types it into the settings file
+   (`/etc/kumi/kumi.env`) themselves ([docs/setup/README.md](docs/setup/README.md), "Putting a service's keys in").
+   Never print the settings file or a key. `openpadel export` and restoring an export ask
    for the file's passphrase: the owner runs those in their own terminal and types it. Never read a sign-in
    code out of the server's log for the owner: before email is set up, `openpadel sign-in-link <owner's email>`
    prints a one-time link (15 minutes) that you hand them without opening it; they set up a second step

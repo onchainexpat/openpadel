@@ -8,6 +8,9 @@ Playtomic account can). The agent sets openPadel up and links the courts with th
 **Time and cost:** 20 minutes. Playtomic's Third Party API comes with its Champion and Master plans.
 **`openpadel doctor` checks:** `playtomic`.
 
+
+> **Putting the keys in:** the owner pastes them on the Playtomic card in the staff app (Settings, Connectors, **Set up**), or the agent pipes them in from a password manager with `openpadel connect playtomic --set <field> --from-stdin`; the settings file below is the third way, and wins when it has a value. See ["Putting a service's keys in"](../README.md#putting-a-services-keys-in). Never through the chat.
+
 ## Steps
 
 1. **Owner: create Third Party API credentials** in Playtomic's club manager. You get a client
