@@ -7,6 +7,43 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+A service's keys are set in the staff app or by the owner's agent, and the settings are named OPENPADEL_.
+
+### When updating
+Nothing else to do: the old KUMI_ setting names keep working, and `openpadel doctor` says, gently, while any is still
+in use. To move the settings file to the new names (optional), run `sudo openpadel settings rename` on a one-server
+install, or `deploy/docker/update.sh rename-settings` with Docker; each keeps a dated copy of the file beside it and
+prints names only. Rename only once you won't go back to an earlier release: before 0.9.0, the Docker files read
+only the old names.
+
+### Added
+- **Set a service up from its card.** Settings, Connectors: Stripe, Resend, Twilio, Playtomic, offsite backups and
+  the AI models (new on the page) each have **Set up** (or **Change**) for the owner, with the service's fields, a
+  link to the provider's page where the keys are made and the choices to make there. What's pasted is sealed in the
+  club's vault, the preview names each setting and a secret's last 4 characters only, and the club uses it within a
+  minute, with no restart: email, card payments, texts, the Playtomic mirror, offsite backups and the AI models all
+  read the settings as they are now. **Remove** takes them out again, and **Send a test** (Resend: an email to the
+  owner; Stripe: the account) says whether it works. Both are changes like any other: the owner's alone, with a
+  second step, in Changes and undoable. A live Stripe key still waits for go-live.
+- **`openpadel connect`** for the owner's agent, with a password manager: `op read "op://Club/Resend/api key" |
+  openpadel connect resend --set api_key --from-stdin` (or `--from-env NAME`), signed in as the owner with a second
+  step in the last half hour, or on the server as root. The value comes from what's piped in or an environment
+  variable only, never the command line, and is never printed; the same preview as the app, then `openpadel connect
+  --confirm <id>` on the owner's yes. `openpadel connect` alone says what's set and where; `--link` gives the owner a
+  15-minute link straight to the service's form. `/mcp` shows what's set and where, and never takes a key.
+- **Where each setting comes from:** the card and `openpadel doctor` say "in the app" or "on the server". A value in
+  the settings file still wins over the app's, so servers set up before work as they did.
+- **`openpadel settings rename`**: the settings file's KUMI_ names become OPENPADEL_ ones, with a dated copy kept.
+
+### Changed
+- **Settings are named OPENPADEL_** (OPENPADEL_RESEND_API_KEY and the rest) in the docs, the deploy files, the
+  Connectors cards, doctor and every message. The old KUMI_ names are still read; with both set, the OPENPADEL_ one is
+  used and doctor says so. Paths (/etc/kumi, /var/lib/kumi), the kumi command and the packages keep their names.
+- The setup guide gives the three ways to put a key in, in order: the owner pastes it on the card, the agent pipes it
+  in from a password manager, or the owner types it into the settings file.
+
 ## 0.8.2 (2026-11-22)
 
 The Schedule from a club owner's first look: a card for each block, and Playtomic copies in their real colours.
