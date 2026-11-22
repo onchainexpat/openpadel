@@ -16,6 +16,7 @@ import { atLocal, connect, heartbeat, jobFailed, jobWorked, localParts, migrate,
 import { S3Client, type S3Config } from "./s3.ts";
 import { expectedShape, putSettingsBack, schemaShape, settingsNow, shapeDifferences, type Shape } from "./shape.ts";
 import { setting } from "@kumi/core";
+import { productName } from "@kumi/i18n";
 
 export const LOCAL_DAYS = 14, OFFSITE_DAILY = 30, OFFSITE_MONTHLY = 12;
 type Env = Record<string, string | undefined>;
@@ -267,13 +268,13 @@ async function foreignShape(url: string, before: Shape): Promise<string[]> {
     const want = expectedShape(), here = new Set(before.objects);
     const known = new Set([...want.objects, ...before.objects].map(name));
     const early = (await schemaShape(db)).objects.map(name).filter((n) => !known.has(n) && !EARLIER_KUMI.has(n));
-    if (early.length) return early.map((n) => `not Kumi's: ${n}`);
+    if (early.length) return early.map((n) => `not ${productName()}'s: ${n}`);
     await migrate(db);
     const got = await schemaShape(db);
     // Definitions compare on the Postgres shape.json was recorded on; this server's own objects, exactly as they were.
     const key = got.postgres === want.postgres ? (l: string) => l : name;
     const should = new Set(want.objects.map(key)), have = new Set(got.objects.map(key));
-    return [...got.objects.filter((l) => !should.has(key(l)) && !here.has(l)).map((l) => `not Kumi's: ${name(l)}`),
+    return [...got.objects.filter((l) => !should.has(key(l)) && !here.has(l)).map((l) => `not ${productName()}'s: ${name(l)}`),
       ...want.objects.filter((l) => !have.has(key(l))).map((l) => `missing: ${name(l)}`)];
   } finally { await db.destroy(); }
 }

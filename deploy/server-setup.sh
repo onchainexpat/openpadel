@@ -192,7 +192,7 @@ root() { [ "$(id -u)" = 0 ] || { echo "kumi $1 needs root: sudo kumi $1 ..." >&2
 case "${1:-}" in
   update)
     root update; shift; f="${1:?usage: kumi update <release.tar>}"; t=$(mktemp -d)
-    tar -xOf "$f" deploy/release.sh > "$t/release.sh" || { echo "kumi: $f isn't a Kumi release" >&2; exit 1; }
+    tar -xOf "$f" deploy/release.sh > "$t/release.sh" || { echo "kumi: $f isn't an openPadel release" >&2; exit 1; }
     bash "$t/release.sh" update "$@"; rc=$?; rm -rf "$t"; exit $rc;;
   rollback|releases)
     # Root's own copy of release.sh, from the last update's release file: never one the kumi user could change.

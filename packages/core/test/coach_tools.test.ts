@@ -138,7 +138,7 @@ test("the calendar link: Kim's lessons and dates in UTC, juniors by first name, 
   assert.ok(ics.endsWith("\r\n") && !/[^\r]\n/.test(ics), "CRLF line endings");
   for (const line of ics.split("\r\n")) assert.ok(Buffer.byteLength(line) <= 75, `folded: ${line}`);
   const unfolded = ics.replace(/\r\n /g, "");
-  assert.match(unfolded, /^BEGIN:VCALENDAR\r\nVERSION:2\.0\r\nPRODID:-\/\/Kumi\/\/Coach calendar\/\/EN\r\n/);
+  assert.match(unfolded, /^BEGIN:VCALENDAR\r\nVERSION:2\.0\r\nPRODID:-\/\/openPadel\/\/Coach calendar\/\/EN\r\n/);
   assert.match(unfolded, /\r\nX-WR-CALNAME:Kim at Kestrel Padel\r\n/);
   assert.match(unfolded, /\r\nUID:session-[0-9a-f-]+@kumi\r\nDTSTAMP:20261130T160000Z\r\nDTSTART:20261203T020000Z\r\nDTEND:20261203T030000Z\r\nSEQUENCE:\d+\r\nSTATUS:CONFIRMED\r\nSUMMARY:Volley Clinic\\; Level 3\\, Beginners \(3 signed up\)\r\nLOCATION:Court 2\\, Eastside\\, 12 Bay St\\, Oakland\r\nDESCRIPTION:Signed up: Ann\\, Ben\\, Mia\r\n/);
   assert.ok(!unfolded.includes("Hale"), "a junior goes in by first name only");

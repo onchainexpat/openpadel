@@ -454,7 +454,7 @@ export function memberRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Cont
     if (!b) throw new KumiError("error.not_found", { thing: { en: "booking", es: "la reserva" } }, 404);
     const club = await db.selectFrom("club").select("name").executeTakeFirstOrThrow();
     c.header("content-type", "text/calendar; charset=utf-8"); c.header("content-disposition", `attachment; filename="${b.code}.ics"`);
-    return c.body(icsCalendar({ prodId: "-//Kumi//Bookings//EN", events: [{ uid: `${b.id}@kumi`, start: new Date(b.start), end: new Date(b.end),
+    return c.body(icsCalendar({ prodId: "-//openPadel//Bookings//EN", events: [{ uid: `${b.id}@kumi`, start: new Date(b.start), end: new Date(b.end),
       summary: `${b.court}, ${club.name} (${b.code})`, location: [b.location, b.address].filter(Boolean).join(", ") }] }));
   });
 

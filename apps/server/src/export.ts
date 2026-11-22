@@ -17,6 +17,7 @@ import { carryGoneAfterImport, carryMeterAfterImport, readGoneBefore, readMeterB
 import { makeBackup, readOpsRecords, safeRestore, writeOpsRecords, type Manifest } from "./backups.ts";
 import { REVISION, VERSION } from "./version.ts";
 import { setting } from "@kumi/core";
+import { productName } from "@kumi/i18n";
 
 type Env = Record<string, string | undefined>;
 export const EXPORT_MAGIC = Buffer.from("KUMIEX1\n");
@@ -59,7 +60,7 @@ function kdfOf(h: Partial<Kdf>): Kdf {
   const { N, r, p } = h;
   const pow2 = typeof N === "number" && Number.isInteger(N) && N >= 16384 && N <= 1048576 && (N & (N - 1)) === 0;
   if (!pow2 || !Number.isInteger(r) || r! < 1 || r! > 16 || !Number.isInteger(p) || p! < 1 || p! > 4 || 128 * N! * r! * p! > 512 * 1024 * 1024)
-    throw new ExportRefused("this file asks for a passphrase stretching Kumi doesn't use (it may be damaged)");
+    throw new ExportRefused(`this file asks for a passphrase stretching ${productName()} doesn't use (it may be damaged)`);
   return { N: N!, r: r!, p: p! };
 }
 const keyFor = (p: string, made: boolean, salt: Buffer, kdf: Kdf = KDF) =>
@@ -101,13 +102,13 @@ export function isExportFile(path: string): boolean {
 }
 /** The header of a file, without the passphrase: when it was made, by which Kumi, and which kind of passphrase. */
 export function exportHeader(file: Buffer): Header {
-  if (!isExport(file)) throw new ExportRefused("this isn't a Kumi export");
+  if (!isExport(file)) throw new ExportRefused(`this isn't an export from ${productName()}`);
   const n = file.readUInt32BE(EXPORT_MAGIC.length);
   return JSON.parse(file.subarray(EXPORT_MAGIC.length + 4, EXPORT_MAGIC.length + 4 + n).toString("utf8")) as Header;
 }
 export function openExport(file: Buffer, passphrase: string): { manifest: ExportManifest; entries: Map<string, Buffer> } {
   const header = exportHeader(file);
-  if (header.format !== 1 || header.cipher !== "aes-256-gcm" || header.kdf.name !== "scrypt") throw new ExportRefused("this export was made by a newer Kumi: update this one first");
+  if (header.format !== 1 || header.cipher !== "aes-256-gcm" || header.kdf.name !== "scrypt") throw new ExportRefused(`this export was made by a newer ${productName()}: update this one first`);
   const start = EXPORT_MAGIC.length + 4 + file.readUInt32BE(EXPORT_MAGIC.length);
   // The stretching the file was made with: its header says, within kdfOf's bounds (and the header is checked with the
   // contents, so a changed one fails to open).
@@ -120,7 +121,7 @@ export function openExport(file: Buffer, passphrase: string): { manifest: Export
   const entries = unpack(payload), m = entries.get("manifest.json");
   if (!m || !entries.has("database.dump")) throw new ExportRefused("the file is missing its database");
   const manifest = JSON.parse(m.toString("utf8")) as ExportManifest;
-  if (manifest.kind !== "kumi-export") throw new ExportRefused("this isn't a Kumi export");
+  if (manifest.kind !== "kumi-export") throw new ExportRefused(`this isn't an export from ${productName()}`);
   return { manifest, entries };
 }
 
@@ -194,7 +195,7 @@ export async function importExport(o: { url: string; file: Buffer; passphrase: s
   const env = o.env ?? process.env, now = o.now ?? new Date();
   const { manifest, entries } = openExport(o.file, o.passphrase);
   const known = knownMigrations(), newer = manifest.migrations.filter((m) => !known.has(m));
-  if (newer.length) throw new ExportRefused(`this export comes from a newer Kumi (${manifest.kumi.version}, ${newer.length} changes this one doesn't have): update this server first`);
+  if (newer.length) throw new ExportRefused(`this export comes from a newer ${productName()} (${manifest.kumi.version}, ${newer.length} changes this one doesn't have): update this server first`);
   const tmp = mkdtempSync(join(tmpdir(), "kumi-import-"));
   let safetyCopy: string, kept: Awaited<ReturnType<typeof readOpsRecords>> = [], meter: Awaited<ReturnType<typeof readMeterBefore>> = null, gone: Awaited<ReturnType<typeof readGoneBefore>> = null;
   try {

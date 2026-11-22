@@ -260,5 +260,5 @@ export async function coachCalendar(db: Db | Trx, token: string, now = new Date(
       description: who.length ? t(lang, "ical.session_details", { players: names(who) }) : t(lang, "ical.nobody") });
   }
   events.sort((a, b) => a.start.getTime() - b.start.getTime());
-  return icsCalendar({ prodId: "-//Kumi//Coach calendar//EN", name: t(lang, "ical.name", { club: club.name, coach: f.display_name }), refreshMinutes: 60, events, now });
+  return icsCalendar({ prodId: "-//openPadel//Coach calendar//EN", name: t(lang, "ical.name", { club: club.name, coach: f.display_name }), refreshMinutes: 60, events, now });
 }

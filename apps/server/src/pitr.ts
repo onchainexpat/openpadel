@@ -86,7 +86,7 @@ export function pitrConf(env: Env, o: { backupKey: Buffer | null; paths?: PitrPa
     offsite = !prunes ? "no_prune" : !o.backupKey ? "no_key" : endpoint?.protocol !== "https:" ? "not_https" : "on";
   }
   const lines = [
-    "# Point-in-time backups (Kumi's apps/server/src/pitr.ts). Written from the server's settings (/etc/kumi/kumi.env,",
+    "# Point-in-time backups (openPadel's apps/server/src/pitr.ts). Written from the server's settings (/etc/kumi/kumi.env,",
     "# or Docker's .env) by setup, every update and Docker's pitr service: change those settings, not this file.",
     `# offsite: ${offsite}`,
     "[global]",

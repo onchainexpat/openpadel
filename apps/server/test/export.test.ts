@@ -114,7 +114,7 @@ test("an export from a newer Kumi is refused, and nothing is changed", { skip },
   const newer = { ...manifest, kumi: { version: "9.0.0", revision: "x" }, migrations: [...manifest.migrations, "999_from_the_future.sql"] };
   const file = sealExport(packExport([...entries].map(([name, data]) => ({ name, data: name === "manifest.json" ? Buffer.from(JSON.stringify(newer)) : data }))), "correct horse battery", false, NOW);
   const people = (await counts(dst.db, ["person"])).person;
-  await assert.rejects(importExport({ url: dstUrl, file, passphrase: "correct horse battery", dir, env: { KUMI_PG_BIN: process.env.KUMI_PG_BIN } }), /newer Kumi \(9\.0\.0/);
+  await assert.rejects(importExport({ url: dstUrl, file, passphrase: "correct horse battery", dir, env: { KUMI_PG_BIN: process.env.KUMI_PG_BIN } }), /newer openPadel \(9\.0\.0/);
   assert.equal((await counts(dst.db, ["person"])).person, people);
 });
 

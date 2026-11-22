@@ -11,7 +11,7 @@
 // and managers hear once it's decided; a rejection is explained with its fix, and `apply` sends the corrected
 // one (or, once Twilio no longer allows editing, a new one, with --yes). Local numbers (A2P 10DLC) are for
 // clubs that text a lot more; they're registered in Twilio's console (docs/setup/accounts/twilio.md).
-import { both, t, type Key, type Lang, type Text, formatLocale } from "@kumi/i18n";
+import { both, t, type Key, type Lang, type Text, formatLocale, productName } from "@kumi/i18n";
 import { numberFailures, runAsSystem, textingRegistration, textWords, type Db, type Rejection, type TextingRegistration, type TextingStatus } from "@kumi/core";
 import type { TextingDetails } from "./setup.ts";
 import { TwilioApi, TwilioApiError, type Form, type TollfreeVerification } from "./twilio_admin.ts";
@@ -111,7 +111,7 @@ export async function textingPlan(d: TextingDeps): Promise<TextingPlan> {
   } else steps.push({ id: "wait", text: both("texting.step.wait") });
   return { needs, steps, registration: reg };
 }
-const serviceName = (club: string) => `${club} texts (Kumi)`.slice(0, 64);
+const serviceName = (club: string) => `${club} texts (${productName()})`.slice(0, 64);
 
 export type ApplyResult = { done: Text[]; stopped: null | "needs" | "needs_yes"; plan: TextingPlan };
 /** Do the next steps, in order, recording each as it's done; stops before anything that costs money or starts

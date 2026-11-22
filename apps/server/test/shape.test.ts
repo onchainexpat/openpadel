@@ -26,7 +26,7 @@ test("a function, trigger, view or setting of someone else's shows; so does a ch
     await sql`CREATE OR REPLACE FUNCTION rating_event_words_only() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$`.execute(db);
     await sql`ALTER ROLE CURRENT_USER IN DATABASE ${sql.id((await sql<{ d: string }>`SELECT current_database() AS d`.execute(db)).rows[0]!.d)} SET search_path = elsewhere, public`.execute(db);
     const d = shapeDifferences(await schemaShape(db));
-    for (const want of ["not Kumi's: function copy_out()", "not Kumi's: trigger outbound_message.copy_out", "not Kumi's: schema elsewhere", "not Kumi's: function rating_event_words_only()", "not Kumi's: setting for the role here"])
+    for (const want of ["not openPadel's: function copy_out()", "not openPadel's: trigger outbound_message.copy_out", "not openPadel's: schema elsewhere", "not openPadel's: function rating_event_words_only()", "not openPadel's: setting for the role here"])
       assert.ok(d.includes(want), `${want} in ${JSON.stringify(d)}`);
   } finally { await drop(); }
 });

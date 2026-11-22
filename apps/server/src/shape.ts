@@ -12,6 +12,7 @@
 // names are, since Postgres may print the same definition differently.
 import { readFileSync, writeFileSync } from "node:fs";
 import { sql, type Kysely } from "kysely";
+import { productName } from "@kumi/i18n";
 
 const userSchema = (col: string) => sql.raw(`(${col} NOT LIKE 'pg\\_%' AND ${col} <> 'information_schema')`);
 /** Objects an extension brought (btree_gist's functions and operators): the extension is compared, not its parts. */
@@ -71,7 +72,7 @@ export function shapeDifferences(got: Shape, want: Shape = expectedShape()): str
   const exact = got.postgres === want.postgres;
   const key = exact ? (l: string) => l : nameOnly;
   const have = new Set(got.objects.map(key)), should = new Set(want.objects.map(key));
-  return [...[...have].filter((l) => !should.has(l)).map((l) => `not Kumi's: ${nameOnly(l)}`),
+  return [...[...have].filter((l) => !should.has(l)).map((l) => `not ${productName()}'s: ${nameOnly(l)}`),
     ...[...should].filter((l) => !have.has(l)).map((l) => `missing: ${nameOnly(l)}`)].sort();
 }
 

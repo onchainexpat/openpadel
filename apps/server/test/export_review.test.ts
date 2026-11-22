@@ -54,7 +54,7 @@ test("an export whose database brings a trigger of someone else's is refused, an
   const file = await makeExport(src.db, { url: src.url, env: ENV, now: NOW, passphrase: "correct horse battery" });
   const before = await people(dst.db);
   await assert.rejects(importExport({ url: dst.url, file: file.file, passphrase: "correct horse battery", dir, env: ENV, now: NOW }),
-    (e: unknown) => e instanceof RestoreRefused && /not Kumi's: function copy_out\(\)/.test(e.message) && /trigger outbound_message\.copy_out/.test(e.message));
+    (e: unknown) => e instanceof RestoreRefused && /not openPadel's: function copy_out\(\)/.test(e.message) && /trigger outbound_message\.copy_out/.test(e.message));
   assert.equal(await people(dst.db), before, "this club's own data, as it was");
   assert.equal((await sql<{ n: string }>`SELECT count(*) AS n FROM pg_trigger WHERE tgname = 'copy_out'`.execute(dst.db)).rows[0]!.n, "0");
   assert.equal((await dst.db.selectFrom("person").select("id").where("email", "=", "dee@example.test").executeTakeFirst()) !== undefined, true);

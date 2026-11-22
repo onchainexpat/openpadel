@@ -7,6 +7,14 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+### Fixed
+- A few words still said "Kumi" on every install: restoring an export ("this isn't an export from openPadel", "a
+  newer openPadel"), the database check during a restore ("not openPadel's: ..."), the Twilio Messaging Service
+  openPadel makes for the club's texts ("Club texts (openPadel)"; one made before keeps its name), the bookings and
+  coach calendars' feed name, and the release scripts. Kumi's hosted service still says Kumi.
+
 ## 0.9.0 (2026-11-22)
 
 A service's keys are set in the staff app or by the owner's agent, and the settings are named OPENPADEL_.
