@@ -8,12 +8,12 @@ conf=/etc/pgbackrest/pgbackrest.conf
 say() { echo "kumi pitr: $*"; }
 # The offsite archive has a folder per Postgres cluster (its system id), as on a one-server install: a setup made again
 # after losing the machine archives beside the old one's, which stays there to go back into.
-sid=$(psql -XAtq -h /var/run/postgresql -U "${KUMI_PITR_PG_USER:-kumi}" -d postgres -c 'SELECT system_identifier FROM pg_control_system()') \
+sid=$(psql -XAtq -h /var/run/postgresql -U "${OPENPADEL_PITR_PG_USER:-${KUMI_PITR_PG_USER:-kumi}}" -d postgres -c 'SELECT system_identifier FROM pg_control_system()') \
   || { say "can't reach Postgres"; exit 1; }
-KUMI_PITR_SYSTEM_ID=$sid kumi pitr conf > "$conf.new"; rc=$?
+OPENPADEL_PITR_SYSTEM_ID=$sid kumi pitr conf > "$conf.new"; rc=$?
 if [ "$rc" = 3 ]; then
-  # KUMI_PITR=0: off. Without the settings, Postgres lets each piece of its log go, as before.
-  rm -f "$conf.new" "$conf"; say "off (KUMI_PITR=0 in .env)"
+  # OPENPADEL_PITR=0: off. Without the settings, Postgres lets each piece of its log go, as before.
+  rm -f "$conf.new" "$conf"; say "off (OPENPADEL_PITR=0 in .env)"
   while :; do sleep 86400; done
 fi
 [ "$rc" = 0 ] || { rm -f "$conf.new"; say "couldn't write pgBackRest's settings"; exit 1; }
@@ -30,7 +30,7 @@ while :; do
 done
 mv -f "$conf.new" "$conf"
 # A base backup each time the service starts (a full one first, then differential ones): recovery replays the log in
-# order, so after a stretch without archiving (an earlier release, KUMI_PITR=0) the minutes since are reachable at once,
+# order, so after a stretch without archiving (an earlier release, OPENPADEL_PITR=0) the minutes since are reachable at once,
 # not only after the next night's.
 tick=--now
 while :; do

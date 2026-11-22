@@ -2,7 +2,9 @@
 # One server from a fresh Ubuntu 24.04: a firewall, Postgres 17, Node 24, Caddy for HTTPS, Kumi as a
 # service and nightly backups. Run once as root (safe to run again); then ship the code with ship.sh.
 set -euo pipefail
-: "${KUMI_HOST:?set KUMI_HOST to the host for the members app; staff use staff.KUMI_HOST}"
+# The members' app's host: OPENPADEL_HOST (KUMI_HOST, its old name, still works). Staff use staff.<host>.
+CLUB_HOST=${OPENPADEL_HOST:-${KUMI_HOST:-}}
+: "${CLUB_HOST:?set OPENPADEL_HOST to the host for the members app; staff use staff.OPENPADEL_HOST}"
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update -q
@@ -38,8 +40,8 @@ node --version
 # pgBackRest, at least once a minute while the club is busy, from the PostgreSQL project's own repository (the same
 # one Postgres comes from). archive_mode is read only when Postgres starts, so it's set here, never by an update;
 # pgBackRest's own settings are written once the code is here (the system files below, and every update), and until
-# then each piece is let go, as before. KUMI_PITR=0 leaves it all off.
-if [ "${KUMI_PITR:-1}" != 0 ]; then
+# then each piece is let go, as before. OPENPADEL_PITR=0 leaves it all off.
+if [ "${OPENPADEL_PITR:-${KUMI_PITR:-1}}" != 0 ]; then
   apt-get install -yq pgbackrest
   install -d -m 750 -o postgres -g postgres /var/lib/pgbackrest /var/spool/pgbackrest /var/log/pgbackrest
   install -d -m 755 /usr/local/lib/kumi /etc/pgbackrest
@@ -74,24 +76,24 @@ install -d -m 750 -o root -g kumi /etc/kumi
 if [ ! -f /etc/kumi/kumi.env ]; then
   cat > /etc/kumi/kumi.env <<ENV
 NODE_ENV=production
-KUMI_PRACTICE=1
+OPENPADEL_PRACTICE=1
 PORT=8790
 DATABASE_URL=postgresql://kumi@/kumi?host=/var/run/postgresql
-KUMI_PUBLIC_URL=https://staff.$KUMI_HOST
-KUMI_MEMBER_URL=https://$KUMI_HOST
-KUMI_CLUB_FILE=/etc/kumi/club.yaml
+OPENPADEL_PUBLIC_URL=https://staff.$CLUB_HOST
+OPENPADEL_MEMBER_URL=https://$CLUB_HOST
+OPENPADEL_CLUB_FILE=/etc/kumi/club.yaml
 # The server's key for the secrets it keeps (sealed.ts), and the key offsite backups are sealed with. Never
-# printed. Keep a copy of KUMI_BACKUP_KEY away from this server (a password manager): without it, the offsite
+# printed. Keep a copy of OPENPADEL_BACKUP_KEY away from this server (a password manager): without it, the offsite
 # copies can't be opened, and it's lost with the server.
-KUMI_SECRET_KEY=$(head -c 32 /dev/urandom | base64)
-KUMI_BACKUP_KEY=$(head -c 32 /dev/urandom | base64)
+OPENPADEL_SECRET_KEY=$(head -c 32 /dev/urandom | base64)
+OPENPADEL_BACKUP_KEY=$(head -c 32 /dev/urandom | base64)
 # Offsite backups (docs/setup/accounts/offsite-backups.md):
-# KUMI_OFFSITE_ENDPOINT=  KUMI_OFFSITE_BUCKET=  KUMI_OFFSITE_ACCESS_KEY_ID=  KUMI_OFFSITE_SECRET_ACCESS_KEY=  KUMI_OFFSITE_REGION=auto
-# KUMI_RESEND_API_KEY=  KUMI_MAIL_FROM=  KUMI_MAIL_TEST_TO=  KUMI_RESEND_WEBHOOK_SECRET=
-# KUMI_TWILIO_ACCOUNT_SID=  KUMI_TWILIO_AUTH_TOKEN=  KUMI_TWILIO_MESSAGING_SERVICE_SID=  KUMI_SMS_TEST_TO=
-# Ask the club (docs/setup/accounts/ask-the-club.md): KUMI_TYPESAFE_API_KEY=  KUMI_ANTHROPIC_API_KEY=
-# KUMI_STRIPE_SECRET_KEY=  KUMI_STRIPE_PUBLISHABLE_KEY=  KUMI_STRIPE_WEBHOOK_SECRET=  KUMI_STRIPE_CONNECT=
-# KUMI_PLAYTOMIC_CLIENT_ID=  KUMI_PLAYTOMIC_SECRET=  KUMI_PLAYTOMIC_TENANT_ID=
+# OPENPADEL_OFFSITE_ENDPOINT=  OPENPADEL_OFFSITE_BUCKET=  OPENPADEL_OFFSITE_ACCESS_KEY_ID=  OPENPADEL_OFFSITE_SECRET_ACCESS_KEY=  OPENPADEL_OFFSITE_REGION=auto
+# OPENPADEL_RESEND_API_KEY=  OPENPADEL_MAIL_FROM=  OPENPADEL_MAIL_TEST_TO=  OPENPADEL_RESEND_WEBHOOK_SECRET=
+# OPENPADEL_TWILIO_ACCOUNT_SID=  OPENPADEL_TWILIO_AUTH_TOKEN=  OPENPADEL_TWILIO_MESSAGING_SERVICE_SID=  OPENPADEL_SMS_TEST_TO=
+# Ask the club (docs/setup/accounts/ask-the-club.md): OPENPADEL_TYPESAFE_API_KEY=  OPENPADEL_ANTHROPIC_API_KEY=
+# OPENPADEL_STRIPE_SECRET_KEY=  OPENPADEL_STRIPE_PUBLISHABLE_KEY=  OPENPADEL_STRIPE_WEBHOOK_SECRET=  OPENPADEL_STRIPE_CONNECT=
+# OPENPADEL_PLAYTOMIC_CLIENT_ID=  OPENPADEL_PLAYTOMIC_SECRET=  OPENPADEL_PLAYTOMIC_TENANT_ID=
 ENV
   chown root:kumi /etc/kumi/kumi.env; chmod 640 /etc/kumi/kumi.env
 fi
@@ -126,7 +128,7 @@ api='/auth/* /me /me/* /my/* /club /actions /actions/* /runs /runs/* /staff/* /o
 csp="default-src 'self'; script-src 'self' https://js.stripe.com https://*.js.stripe.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com; connect-src 'self' https://api.stripe.com; img-src 'self' data: https://*.stripe.com; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 # --- caddy sites (the same in server-setup.sh and release.sh) ---
 # One of Kumi's sites: $1 its address, $2 the app (member or manager), $3 where the server listens (127.0.0.1:PORT,
-# or unix/ and KUMI_SOCKET's path) and $4 the link to the running release. The API's paths ($api) go to the server;
+# or unix/ and OPENPADEL_SOCKET's path) and $4 the link to the running release. The API's paths ($api) go to the server;
 # everything else is the app, with the apps' security headers ($csp).
 site() {
   cat <<SITE
@@ -164,9 +166,9 @@ kumi_sites() {
 }
 # --- end caddy sites ---
 # Where the server listens, as its settings say (listen.ts): its port on this machine, or its unix socket.
-port=$(sed -n 's/^PORT=//p' /etc/kumi/kumi.env | tail -1); sock=$(sed -n 's/^KUMI_SOCKET=//p' /etc/kumi/kumi.env | tail -1)
+port=$(sed -n 's/^PORT=//p' /etc/kumi/kumi.env | tail -1); sock=$(sed -n 's/^OPENPADEL_SOCKET=//p' /etc/kumi/kumi.env | tail -1); [ -n "$sock" ] || sock=$(sed -n 's/^KUMI_SOCKET=//p' /etc/kumi/kumi.env | tail -1)
 if [ -n "$sock" ]; then upstream="unix/$sock"; else upstream="127.0.0.1:${port:-8790}"; fi
-kumi_sites "$KUMI_HOST" "staff.$KUMI_HOST" "$upstream" /opt/kumi/app > /etc/caddy/Caddyfile
+kumi_sites "$CLUB_HOST" "staff.$CLUB_HOST" "$upstream" /opt/kumi/app > /etc/caddy/Caddyfile
 # Caddy serves the built apps from /opt/kumi, which everyone can read. It isn't in the kumi group, so it can't read
 # the settings file (a server set up before 0.1.0 had it there: take it out).
 if id -nG caddy | tr ' ' '\n' | grep -qx kumi; then gpasswd -d caddy kumi >/dev/null; systemctl restart caddy; fi
@@ -209,7 +211,7 @@ case "${1:-}" in
       set -- restore "$extract" --yes;;
     esac
     systemctl stop kumi
-    cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
+    cd /opt/kumi/app && sudo -u kumi OPENPADEL_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
     # 4: the restore failed and the database may be empty: the server stays stopped (starting would set up an
     # empty club). Any other outcome left the database whole (restored, put back, or never touched).
     rc=$?; if [ "$rc" = 4 ]; then echo "kumi: the server stays stopped; see above" >&2; else systemctl start kumi; fi
@@ -225,7 +227,7 @@ case "${1:-}" in
     esac;;
 esac
 cd /opt/kumi/app || exit 1
-exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
+exec sudo -u kumi OPENPADEL_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
 SH
 chmod 755 /usr/local/bin/kumi.new && mv -f /usr/local/bin/kumi.new /usr/local/bin/kumi
 # openpadel: the same command under the software's name; kumi keeps working for whatever already uses it.
@@ -366,7 +368,7 @@ if [ -f /etc/postgresql/17/main/conf.d/kumi-pitr.conf ] && [ -f /opt/kumi/app/ap
   # The offsite archive has a folder per Postgres cluster (its system id): a server set up again after losing the old
   # one archives beside the old one's, which stays there to go back into (kumi restore --to ... --archive=<id>).
   sid=$(runuser -u postgres -- psql -XAtc 'SELECT system_identifier FROM pg_control_system()' 2>/dev/null || true)
-  if (cd /opt/kumi/app && sudo -u kumi KUMI_PITR_SYSTEM_ID="$sid" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts pitr conf') > "$t"; then
+  if (cd /opt/kumi/app && sudo -u kumi OPENPADEL_PITR_SYSTEM_ID="$sid" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts pitr conf') > "$t"; then
     install -d -m 755 /etc/pgbackrest
     install -m 640 -o root -g postgres "$t" /etc/pgbackrest/pgbackrest.conf
     # stanza-create takes the archive's lock, so it's refused ([050]) while Postgres is sending a piece of its log

@@ -6,6 +6,7 @@
 #   deploy/docker/update.sh <git ref>        a release tag (v0.2.1) or a branch
 #   deploy/docker/update.sh rollback --yes   the previous release, and the database as it was just before
 #                                            the last update (everything since is lost: hence --yes)
+#   deploy/docker/update.sh rename-settings  .env's old KUMI_ setting names to OPENPADEL_ (optional; the old ones still work)
 #
 # All of it is one block, read in full before any of it runs, and it ends in exit: bash reads a script as it goes,
 # and this one checks out another release over itself, so without that it could run on into the other one's text.
@@ -17,18 +18,20 @@ STATE=.kumi-release
 say() { echo "kumi: $*"; }
 die() { echo "kumi: $*" >&2; exit 1; }
 setenv() { if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi; }
+# A setting in .env: its OPENPADEL_ name, else the old KUMI_ one (a .env from before openPadel's names).
+envget() { local v; v=$(sed -n "s/^OPENPADEL_$1=//p" .env | tail -1); [ -n "$v" ] || v=$(sed -n "s/^KUMI_$1=//p" .env | tail -1); printf '%s' "$v"; }
 # Database commands run inside the db container, over its own socket (the tests swap in their own container).
-DBX=${KUMI_DBX:-docker compose exec -T db}
+DBX=${OPENPADEL_DBX:-${KUMI_DBX:-docker compose exec -T db}}
 # Everything that opens the club's database: the pitr service only where this checkout's compose.yaml has it (an older
 # release's doesn't, and stopping a service it doesn't name would end the update halfway).
 stop_app() { docker compose stop kumi backup $(docker compose config --services 2>/dev/null | grep -x pitr || true); }
-STOP_APP=${KUMI_STOP_APP:-stop_app}
+STOP_APP=${OPENPADEL_STOP_APP:-${KUMI_STOP_APP:-stop_app}}
 # .env holds every key the club has: only its owner should read it.
 case "$(stat -c %a .env)" in *00) ;; *) say "warning: .env can be read by other users on this machine; run: chmod 600 .env";; esac
 
 # The server's key for the secrets it keeps: a setup from before there was one gets one now (never printed).
 made_key=
-grep -q '^KUMI_SECRET_KEY=.' .env || { setenv KUMI_SECRET_KEY "$(head -c 32 /dev/urandom | base64)"; made_key=1; say "made this server's secret key (KUMI_SECRET_KEY in .env)"; }
+grep -qE '^(OPENPADEL|KUMI)_SECRET_KEY=.' .env || { setenv OPENPADEL_SECRET_KEY "$(head -c 32 /dev/urandom | base64)"; made_key=1; say "made this server's secret key (OPENPADEL_SECRET_KEY in .env)"; }
 
 check() {
   local want=$1 i=0
@@ -58,7 +61,7 @@ move_to_app_role() {
   $STOP_APP
   (umask 077; $DBX pg_dump -Fc --no-owner --no-acl -U kumi -d kumi > "$dump") || return 1
   $DBX pg_restore --list < "$dump" > /dev/null || return 1
-  local pw; pw=$(sed -n 's/^KUMI_DB_PASSWORD=//p' .env)
+  local pw; pw=$(envget DB_PASSWORD)
   $DBX psql -q -v ON_ERROR_STOP=1 -U kumi -d postgres -v pw="$pw" <<'SQL' || return 1
 CREATE ROLE kumi_app LOGIN NOSUPERUSER NOCREATEROLE CREATEDB PASSWORD :'pw';
 DROP DATABASE kumi WITH (FORCE);
@@ -72,8 +75,29 @@ SQL
   return 1
 }
 [ "${1:-}" = move-to-app-role ] && { move_to_app_role && exit 0; exit 1; }   # for the tests
+# `deploy/docker/update.sh rename-settings`: .env's old KUMI_ names become OPENPADEL_ ones, as `openpadel settings rename`
+# does on a one-server install. A dated copy is kept beside it; no value is changed or printed. A name set both ways keeps
+# the OPENPADEL_ line (the one used); the old line goes if it's the same, or stays commented out if not. Only once you
+# won't go back to a release from before 0.9.0: its compose.yaml reads only the old names.
+if [ "${1:-}" = rename-settings ]; then
+  names=$(sed -n 's/^KUMI_\([A-Za-z0-9_]*\)=.*/\1/p' .env)
+  [ -n "$names" ] || { say "the settings already use the new names (OPENPADEL_); nothing to do"; exit 0; }
+  copy=".env.before-rename-$(date -u +%Y%m%d-%H%M%S)"; cp -p .env "$copy"
+  t=$(mktemp); trap 'rm -f "$t"' EXIT
+  awk 'FNR == NR { if (match($0, /^OPENPADEL_[A-Za-z0-9_]+=/)) newv[substr($0, 11, RLENGTH - 11)] = substr($0, RLENGTH + 1); next }
+    match($0, /^KUMI_[A-Za-z0-9_]+=/) { k = substr($0, 6, RLENGTH - 6); v = substr($0, RLENGTH + 1)
+      if (k in newv) { if (newv[k] == v) next; print "# OPENPADEL_" k " is set too, and is the one used; the old line, as it was:"; print "# " $0; next }
+      print "OPENPADEL_" k "=" v; next }
+    { print }' .env .env > "$t"
+  cat "$t" > .env   # into the same file, so its owner and mode (600) stay
+  for n in $names; do say "KUMI_$n is now OPENPADEL_$n"; done
+  say "the old file is kept as $copy; run docker compose up -d for the server to read the new names"
+  exit 0
+fi
 # --remove-orphans: going back to a release without one of these services (the pitr service, before it) stops it too.
-up_as() { setenv KUMI_TAG "$1"; KUMI_TAG=$1 docker compose up -d --remove-orphans; }
+# The tag under both names for compose itself: an older release's compose.yaml (going back) reads only KUMI_TAG. In .env, the
+# new name, and the old line kept in step only where it's still there.
+up_as() { setenv OPENPADEL_TAG "$1"; if grep -q "^KUMI_TAG=" .env; then setenv KUMI_TAG "$1"; fi; OPENPADEL_TAG=$1 KUMI_TAG=$1 docker compose up -d --remove-orphans; }
 
 if [ "${1:-}" = rollback ]; then
   [ "${2:-}" = "--yes" ] || die "going back puts the previous release back AND the database as it was just before the last update.
@@ -103,10 +127,10 @@ fi
 echo "$new" > REVISION
 
 # The running images, kept under the old commit's tag so going back doesn't need a rebuild.
-cur=$(sed -n 's/^KUMI_TAG=//p' .env); cur=${cur:-local}
+cur=$(envget TAG); cur=${cur:-local}
 for i in kumi-server kumi-web kumi-pitr; do if docker image inspect "$i:$cur" >/dev/null 2>&1; then docker tag "$i:$cur" "$i:$old"; fi; done
 say "building $new beside $old"
-KUMI_TAG=$new docker compose build || { echo "$old" > REVISION; git checkout -q "$old"; die "building $new failed; nothing changed, still on $old"; }
+OPENPADEL_TAG=$new KUMI_TAG=$new docker compose build || { echo "$old" > REVISION; git checkout -q "$old"; die "building $new failed; nothing changed, still on $old"; }
 
 mkdir -p backups
 snap="backups/update-$old-to-$new-$(date -u +%Y%m%dT%H%M%SZ).dump"

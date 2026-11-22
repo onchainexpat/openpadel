@@ -27,9 +27,9 @@ function release(rev: string, marks: string[] = [], extraApi = ""): string {
 }
 function sh(...args: string[]) {
   const r = spawnSync("bash", [script, ...args], { encoding: "utf8", env: {
-    PATH: `${stub}:${process.env.PATH}`, KUMI_ROOT: root, KUMI_ENV_FILE: envFile, KUMI_BACKUP_DIR: backups, KUMI_PG_BIN: stub, KUMI_AS: "", KUMI_SYSTEM_FILES: "0",
-    KUMI_CHECK_SECONDS: "3", KUMI_RESTART: `sh ${stub}/restart`, KUMI_STOP: "true", KUMI_INSTALL: "true", KUMI_BUILD: `sh ${stub}/build`, STUB_ROOT: root, STUB_DB: dbFile,
-    KUMI_CADDYFILE: caddyfile, KUMI_CADDY: `${stub}/caddy`, KUMI_CADDY_RELOAD: `sh ${stub}/reload`, KUMI_CADDY_RESTART: `sh ${stub}/caddy_restart` } });
+    PATH: `${stub}:${process.env.PATH}`, OPENPADEL_ROOT: root, OPENPADEL_ENV_FILE: envFile, OPENPADEL_BACKUP_DIR: backups, OPENPADEL_PG_BIN: stub, KUMI_AS: ""   /* the old name, still read */, OPENPADEL_SYSTEM_FILES: "0",
+    OPENPADEL_CHECK_SECONDS: "3", OPENPADEL_RESTART: `sh ${stub}/restart`, OPENPADEL_STOP: "true", OPENPADEL_INSTALL: "true", OPENPADEL_BUILD: `sh ${stub}/build`, STUB_ROOT: root, STUB_DB: dbFile,
+    OPENPADEL_CADDYFILE: caddyfile, OPENPADEL_CADDY: `${stub}/caddy`, OPENPADEL_CADDY_RELOAD: `sh ${stub}/reload`, OPENPADEL_CADDY_RESTART: `sh ${stub}/caddy_restart` } });
   return { code: r.status, out: `${r.stdout}${r.stderr}` };
 }
 const running = () => readlinkSync(join(root, "app"));
@@ -52,6 +52,7 @@ before(() => {
   writeFileSync(join(root, "app/REVISION"), "r1\n");
   for (const a of ["member", "manager"]) writeFileSync(join(root, `app/apps/${a}/dist/index.html`), "");
   writeFileSync(dbFile, "bookings: 1\n");
+  // A server set up before the settings were named OPENPADEL_: its addresses under the old names, which still work.
   writeFileSync(envFile, "NODE_ENV=production\nPORT=8790\nDATABASE_URL=postgresql://kumi@/kumi?host=/var/run/postgresql\n"
     + "KUMI_PUBLIC_URL=https://staff.kestrel.example\nKUMI_MEMBER_URL=https://kestrel.example\n");
   // Caddy's config as server-setup.sh wrote it for r1.
@@ -101,7 +102,7 @@ test("an update installs beside the running release, takes a snapshot, switches 
   assert.equal(readFileSync(join(backups, snaps[0]!), "utf8"), "bookings: 1\n");
   assert.equal(db(), "bookings: 1\nmigrated by r2\n");
   // The server got a secret key of its own, never printed.
-  const key = /^KUMI_SECRET_KEY=(.+)$/m.exec(readFileSync(envFile, "utf8"))?.[1];
+  const key = /^OPENPADEL_SECRET_KEY=(.+)$/m.exec(readFileSync(envFile, "utf8"))?.[1];
   assert.ok(key && Buffer.from(key, "base64").length === 32);
   assert.ok(!r.out.includes(key!));
   assert.match(sh("status").out, /running:  r2\nprevious: r1/);

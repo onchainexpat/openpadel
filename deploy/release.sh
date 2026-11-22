@@ -20,25 +20,25 @@
 {
 set -euo pipefail
 
-ROOT=${KUMI_ROOT:-/opt/kumi}
-ENV_FILE=${KUMI_ENV_FILE:-/etc/kumi/kumi.env}
-BACKUPS=${KUMI_BACKUP_DIR:-/var/backups/kumi}
-PG_BIN=${KUMI_PG_BIN:-/usr/lib/postgresql/17/bin}
-KEEP=${KUMI_KEEP:-3}
-CHECK_SECONDS=${KUMI_CHECK_SECONDS:-90}
-RESTART=${KUMI_RESTART:-systemctl restart kumi}
-STOP=${KUMI_STOP:-systemctl stop kumi}
-INSTALL=${KUMI_INSTALL:-npm ci --no-audit --no-fund --loglevel=error}
-BUILD=${KUMI_BUILD:-npm run build -w @kumi/member -w @kumi/manager --silent}
-SYSTEM_FILES=${KUMI_SYSTEM_FILES:-1}
+ROOT=${OPENPADEL_ROOT:-${KUMI_ROOT:-/opt/kumi}}
+ENV_FILE=${OPENPADEL_ENV_FILE:-${KUMI_ENV_FILE:-/etc/kumi/kumi.env}}
+BACKUPS=${OPENPADEL_BACKUP_DIR:-${KUMI_BACKUP_DIR:-/var/backups/kumi}}
+PG_BIN=${OPENPADEL_PG_BIN:-${KUMI_PG_BIN:-/usr/lib/postgresql/17/bin}}
+KEEP=${OPENPADEL_KEEP:-${KUMI_KEEP:-3}}
+CHECK_SECONDS=${OPENPADEL_CHECK_SECONDS:-${KUMI_CHECK_SECONDS:-90}}
+RESTART=${OPENPADEL_RESTART:-${KUMI_RESTART:-systemctl restart kumi}}
+STOP=${OPENPADEL_STOP:-${KUMI_STOP:-systemctl stop kumi}}
+INSTALL=${OPENPADEL_INSTALL:-${KUMI_INSTALL:-npm ci --no-audit --no-fund --loglevel=error}}
+BUILD=${OPENPADEL_BUILD:-${KUMI_BUILD:-npm run build -w @kumi/member -w @kumi/manager --silent}}
+SYSTEM_FILES=${OPENPADEL_SYSTEM_FILES:-${KUMI_SYSTEM_FILES:-1}}
 # Caddy's config, rewritten from each release (its API paths and the apps' policy) unless it was changed by hand.
-CADDYFILE=${KUMI_CADDYFILE:-/etc/caddy/Caddyfile}
-CADDY=${KUMI_CADDY:-caddy}
-CADDY_RELOAD=${KUMI_CADDY_RELOAD:-systemctl reload caddy}
-CADDY_RESTART=${KUMI_CADDY_RESTART:-systemctl restart caddy}
-KUMI_HOME=${KUMI_HOME_DIR:-/var/lib/kumi}   # the kumi user's own folder (npm's cache), outside the code
-# Commands that touch the app or the database run as the kumi user; the tests set KUMI_AS= to run them as themselves.
-AS=${KUMI_AS-sudo -u kumi HOME=$KUMI_HOME}
+CADDYFILE=${OPENPADEL_CADDYFILE:-${KUMI_CADDYFILE:-/etc/caddy/Caddyfile}}
+CADDY=${OPENPADEL_CADDY:-${KUMI_CADDY:-caddy}}
+CADDY_RELOAD=${OPENPADEL_CADDY_RELOAD:-${KUMI_CADDY_RELOAD:-systemctl reload caddy}}
+CADDY_RESTART=${OPENPADEL_CADDY_RESTART:-${KUMI_CADDY_RESTART:-systemctl restart caddy}}
+APP_HOME=${OPENPADEL_HOME_DIR:-${KUMI_HOME_DIR:-/var/lib/kumi}}   # the kumi user's own folder (npm's cache), outside the code
+# Commands that touch the app or the database run as the kumi user; the tests set OPENPADEL_AS= to run them as themselves.
+AS=${OPENPADEL_AS-${KUMI_AS-sudo -u kumi HOME=$APP_HOME}}
 STATE=$ROOT/releases/STATE
 
 say() { echo "kumi: $*"; }
@@ -48,12 +48,14 @@ tool() { if [ -x "$PG_BIN/$1" ]; then echo "$PG_BIN/$1"; else echo "$1"; fi; }
 [ -f "$ENV_FILE" ] || die "no settings at $ENV_FILE"
 # The server's own key for the secrets it keeps (sealed.ts): a server set up before there was one gets one now,
 # never printed. Production won't start without it.
-if ! grep -q '^KUMI_SECRET_KEY=.' "$ENV_FILE"; then
-  echo "KUMI_SECRET_KEY=$(head -c 32 /dev/urandom | base64)" >> "$ENV_FILE"
-  echo "kumi: made this server's secret key (KUMI_SECRET_KEY in $ENV_FILE)"
+if ! grep -qE '^(OPENPADEL|KUMI)_SECRET_KEY=.' "$ENV_FILE"; then
+  echo "OPENPADEL_SECRET_KEY=$(head -c 32 /dev/urandom | base64)" >> "$ENV_FILE"
+  echo "kumi: made this server's secret key (OPENPADEL_SECRET_KEY in $ENV_FILE)"
 fi
 set -a; . "$ENV_FILE"; set +a
 PORT=${PORT:-8790}
+# The server's unix socket, if it has one: OPENPADEL_SOCKET, or the old name (settings from before openPadel's names).
+SOCKET=${OPENPADEL_SOCKET:-${KUMI_SOCKET:-}}
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL isn't set in $ENV_FILE"
 
 state_get() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | head -1 || true; }
@@ -83,7 +85,7 @@ adopt_layout() {
 # a home of its own, and take Caddy out of the kumi group. Safe to run every time.
 harden_layout() {
   [ -n "$AS" ] || return 0   # the tests run as themselves
-  install -d -m 700 -o kumi -g kumi "$KUMI_HOME"
+  install -d -m 700 -o kumi -g kumi "$APP_HOME"
   install -d -m 755 -o root -g root "$ROOT" "$ROOT/releases"
   find "$ROOT/releases" -mindepth 1 -maxdepth 1 ! -user root -exec chown -R root:root {} + -exec chmod -R u+rwX,go+rX,go-w {} +
   [ -e "$STATE" ] && chown root:root "$STATE" && chmod 644 "$STATE"
@@ -96,10 +98,10 @@ harden_layout() {
 }
 switch_to() { ln -sfn "releases/$1" "$ROOT/app.next" && mv -Tf "$ROOT/app.next" "$ROOT/app"; }
 
-# A request to the server itself: on its port on this machine, or on its unix socket (KUMI_SOCKET).
+# A request to the server itself: on its port on this machine, or on its unix socket (OPENPADEL_SOCKET, or the old KUMI_SOCKET).
 ask() {
   local path=$1; shift
-  if [ -n "${KUMI_SOCKET:-}" ]; then curl --unix-socket "$KUMI_SOCKET" "$@" "http://localhost$path"; else curl "$@" "http://127.0.0.1:$PORT$path"; fi
+  if [ -n "$SOCKET" ]; then curl --unix-socket "$SOCKET" "$@" "http://localhost$path"; else curl "$@" "http://127.0.0.1:$PORT$path"; fi
 }
 
 # Up and answering, as the release we expect: /health names its revision, and /club answers.
@@ -120,7 +122,7 @@ check() {
 
 # --- caddy sites (the same in server-setup.sh and release.sh) ---
 # One of Kumi's sites: $1 its address, $2 the app (member or manager), $3 where the server listens (127.0.0.1:PORT,
-# or unix/ and KUMI_SOCKET's path) and $4 the link to the running release. The API's paths ($api) go to the server;
+# or unix/ and OPENPADEL_SOCKET's path) and $4 the link to the running release. The API's paths ($api) go to the server;
 # everything else is the app, with the apps' security headers ($csp).
 site() {
   cat <<SITE
@@ -166,14 +168,14 @@ caddy_for() {
   local f="$ROOT/releases/$1/deploy/server-setup.sh" api csp member staff upstream
   [ -f "$f" ] || return 1
   api=$(sed -n "s/^api='\(.*\)'\$/\1/p" "$f" | head -1); csp=$(sed -n 's/^csp="\(.*\)"$/\1/p' "$f" | head -1)
-  member=$(host_of "${KUMI_MEMBER_URL:-}"); staff=$(host_of "${KUMI_PUBLIC_URL:-}")
+  member=$(host_of "${OPENPADEL_MEMBER_URL:-${KUMI_MEMBER_URL:-}}"); staff=$(host_of "${OPENPADEL_PUBLIC_URL:-${KUMI_PUBLIC_URL:-}}")
   [ -n "$api" ] && [ -n "$csp" ] && [ -n "$member" ] && [ -n "$staff" ] || return 1
   if ! printf '%s\n' "$api" | LC_ALL=C grep -Eqx '[A-Za-z0-9/*._-]+( [A-Za-z0-9/*._-]+)*' \
     || ! printf '%s\n' "$csp" | LC_ALL=C grep -Eqx "[ -~]+" || printf '%s\n' "$csp" | grep -q '["\\{}]'; then
     echo "kumi: release $1's api= or csp= line (deploy/server-setup.sh) has what Caddy's config can't safely take" >&2
     return 1
   fi
-  if [ -n "${KUMI_SOCKET:-}" ]; then upstream="unix/$KUMI_SOCKET"; else upstream="127.0.0.1:$PORT"; fi
+  if [ -n "$SOCKET" ]; then upstream="unix/$SOCKET"; else upstream="127.0.0.1:$PORT"; fi
   kumi_sites "$member" "$staff" "$upstream" "$ROOT/app"
 }
 # Whether Caddy's config is the one Kumi wrote for release $1, unchanged since (comments aside). Only then is it
@@ -443,7 +445,7 @@ case "${1:-}" in
       set -- restore "$extract" --yes;;
     esac
     systemctl stop kumi
-    cd /opt/kumi/app && sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
+    cd /opt/kumi/app && sudo -u kumi OPENPADEL_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
     # 4: the restore failed and the database may be empty: the server stays stopped (starting would set up an
     # empty club). Any other outcome left the database whole (restored, put back, or never touched).
     rc=$?; if [ "$rc" = 4 ]; then echo "kumi: the server stays stopped; see above" >&2; else systemctl start kumi; fi
@@ -459,7 +461,7 @@ case "${1:-}" in
     esac;;
 esac
 cd /opt/kumi/app || exit 1
-exec sudo -u kumi KUMI_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
+exec sudo -u kumi OPENPADEL_CALLER_DIR="$OLDPWD" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts "$@"' kumi "$@"
 SH
 chmod 755 /usr/local/bin/kumi.new && mv -f /usr/local/bin/kumi.new /usr/local/bin/kumi
 # openpadel: the same command under the software's name; kumi keeps working for whatever already uses it.
@@ -600,7 +602,7 @@ if [ -f /etc/postgresql/17/main/conf.d/kumi-pitr.conf ] && [ -f /opt/kumi/app/ap
   # The offsite archive has a folder per Postgres cluster (its system id): a server set up again after losing the old
   # one archives beside the old one's, which stays there to go back into (kumi restore --to ... --archive=<id>).
   sid=$(runuser -u postgres -- psql -XAtc 'SELECT system_identifier FROM pg_control_system()' 2>/dev/null || true)
-  if (cd /opt/kumi/app && sudo -u kumi KUMI_PITR_SYSTEM_ID="$sid" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts pitr conf') > "$t"; then
+  if (cd /opt/kumi/app && sudo -u kumi OPENPADEL_PITR_SYSTEM_ID="$sid" sh -c 'set -a; . /etc/kumi/kumi.env; set +a; exec /usr/local/bin/node apps/server/src/cli.ts pitr conf') > "$t"; then
     install -d -m 755 /etc/pgbackrest
     install -m 640 -o root -g postgres "$t" /etc/pgbackrest/pgbackrest.conf
     # stanza-create takes the archive's lock, so it's refused ([050]) while Postgres is sending a piece of its log
@@ -633,7 +635,7 @@ update() {
   adopt_layout
   harden_layout
   local old; old=$(current_rev)
-  if [ "$old" = "$new" ] && [ "${KUMI_FORCE:-0}" != "1" ]; then say "already running $new"; exit 0; fi
+  if [ "$old" = "$new" ] && [ "${OPENPADEL_FORCE:-${KUMI_FORCE:-0}}" != "1" ]; then say "already running $new"; exit 0; fi
 
   # 1. Install and build beside the running release: nothing changes for members yet.
   local dir="$ROOT/releases/$new"

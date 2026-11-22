@@ -12,8 +12,8 @@ services:
     environment:
       POSTGRES_USER: kumi
       POSTGRES_DB: kumi
-      POSTGRES_PASSWORD: ${KUMI_DB_PASSWORD:?set KUMI_DB_PASSWORD in .env}
-      KUMI_DB_PASSWORD: ${KUMI_DB_PASSWORD}   # for kumi_app, the role the server connects as (db-init.sh)
+      POSTGRES_PASSWORD: ${OPENPADEL_DB_PASSWORD:-${KUMI_DB_PASSWORD:?set OPENPADEL_DB_PASSWORD in .env}}
+      OPENPADEL_DB_PASSWORD: ${OPENPADEL_DB_PASSWORD:-${KUMI_DB_PASSWORD}}   # for kumi_app, the role the server connects as (db-init.sh)
     volumes:
       - db:/var/lib/postgresql/data
       - ./deploy/docker/db-init.sh:/docker-entrypoint-initdb.d/10-kumi-app.sh:ro
@@ -24,14 +24,14 @@ services:
     restart: unless-stopped
 
   kumi:
-    image: kumi-server:${KUMI_TAG:-local}   # built here; deploy/docker/update.sh tags each release
+    image: kumi-server:${OPENPADEL_TAG:-${KUMI_TAG:-local}}   # built here; deploy/docker/update.sh tags each release
     build: { context: ., target: server }
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://kumi_app:${KUMI_DB_PASSWORD}@db/kumi
-      KUMI_PUBLIC_URL: https://staff.${KUMI_HOST:?set KUMI_HOST in .env}
-      KUMI_MEMBER_URL: https://${KUMI_HOST}
-      KUMI_TRUST_PROXY: "1"              # Caddy (the web service) says who each visitor is; port 8790 isn't published
+      DATABASE_URL: postgresql://kumi_app:${OPENPADEL_DB_PASSWORD:-${KUMI_DB_PASSWORD}}@db/kumi
+      OPENPADEL_PUBLIC_URL: https://staff.${OPENPADEL_HOST:-${KUMI_HOST:?set OPENPADEL_HOST in .env}}
+      OPENPADEL_MEMBER_URL: https://${OPENPADEL_HOST:-${KUMI_HOST}}
+      OPENPADEL_TRUST_PROXY: "1"              # Caddy (the web service) says who each visitor is; port 8790 isn't published
     volumes:
       - ./config:/etc/kumi:ro            # club.yaml and member lists for the kumi command
       - ./backups:/var/backups/kumi:ro   # so kumi doctor can see the backups
@@ -39,10 +39,10 @@ services:
     restart: unless-stopped
 
   web:
-    image: kumi-web:${KUMI_TAG:-local}
+    image: kumi-web:${OPENPADEL_TAG:-${KUMI_TAG:-local}}
     build: { context: ., target: web }
-    environment: { KUMI_HOST: "${KUMI_HOST}" }
-    ports: ["${KUMI_HTTP_PORT:-80}:80", "${KUMI_HTTPS_PORT:-443}:443", "${KUMI_HTTPS_PORT:-443}:443/udp"]
+    environment: { OPENPADEL_HOST: "${OPENPADEL_HOST:-${KUMI_HOST}}" }
+    ports: ["${OPENPADEL_HTTP_PORT:-${KUMI_HTTP_PORT:-80}}:80", "${OPENPADEL_HTTPS_PORT:-${KUMI_HTTPS_PORT:-443}}:443", "${OPENPADEL_HTTPS_PORT:-${KUMI_HTTPS_PORT:-443}}:443/udp"]
     volumes: [caddy-data:/data, caddy-config:/config]
     depends_on: [kumi]
     restart: unless-stopped
@@ -51,34 +51,34 @@ services:
   # offsite copy if it's set up in .env. On the 1st of each month at 4:17, the restore test too. It wakes every
   # hour and `--scheduled` runs each only when it's due, so the container's own clock (UTC) doesn't matter.
   backup:
-    image: kumi-server:${KUMI_TAG:-local}
+    image: kumi-server:${OPENPADEL_TAG:-${KUMI_TAG:-local}}
     pull_policy: never                   # the server's own image, built for the kumi service
     user: "0:0"                          # ./backups may be root's from before
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://kumi_app:${KUMI_DB_PASSWORD}@db/kumi
-      KUMI_PUBLIC_URL: https://staff.${KUMI_HOST}   # a club's export records its address; restoring one compares it
-      KUMI_MEMBER_URL: https://${KUMI_HOST}
+      DATABASE_URL: postgresql://kumi_app:${OPENPADEL_DB_PASSWORD:-${KUMI_DB_PASSWORD}}@db/kumi
+      OPENPADEL_PUBLIC_URL: https://staff.${OPENPADEL_HOST:-${KUMI_HOST}}   # a club's export records its address; restoring one compares it
+      OPENPADEL_MEMBER_URL: https://${OPENPADEL_HOST:-${KUMI_HOST}}
     volumes: ["./backups:/var/backups/kumi"]
     entrypoint: ["sh", "-c", "while true; do sleep $$(( (1020 - $$(date +%s) % 3600 + 3600) % 3600 + 1 )); kumi backup --scheduled; kumi restore-test --scheduled; done"]
     depends_on: { db: { condition: service_healthy }, kumi: { condition: service_started } }
     restart: unless-stopped
 
   # Point-in-time backups (deploy/docker/pitr.sh): any minute of the last 14 days on this machine, and of the last 30
-  # offsite once offsite backups are set up, sealed with KUMI_BACKUP_KEY. A base backup every night at 3:37 club
+  # offsite once offsite backups are set up, sealed with OPENPADEL_BACKUP_KEY. A base backup every night at 3:37 club
   # time, the monthly test on the 1st, and `kumi restore --to` here. It runs as Postgres's own user, with the database's
   # folder read-only and Postgres's socket, so pgBackRest can ask Postgres for its backups; the club's database
   # itself it opens as kumi_app, like the server.
   pitr:
-    image: kumi-pitr:${KUMI_TAG:-local}
+    image: kumi-pitr:${OPENPADEL_TAG:-${KUMI_TAG:-local}}
     build: { context: ., target: pitr }
     init: true                           # reaps the scratch copies' Postgres and passes on docker compose stop
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://kumi_app:${KUMI_DB_PASSWORD}@db/kumi
-      KUMI_PUBLIC_URL: https://staff.${KUMI_HOST}
-      KUMI_MEMBER_URL: https://${KUMI_HOST}
-      KUMI_PITR_PG_USER: kumi            # Postgres's superuser here (POSTGRES_USER above): pgBackRest's, never the club's
+      DATABASE_URL: postgresql://kumi_app:${OPENPADEL_DB_PASSWORD:-${KUMI_DB_PASSWORD}}@db/kumi
+      OPENPADEL_PUBLIC_URL: https://staff.${OPENPADEL_HOST:-${KUMI_HOST}}
+      OPENPADEL_MEMBER_URL: https://${OPENPADEL_HOST:-${KUMI_HOST}}
+      OPENPADEL_PITR_PG_USER: kumi            # Postgres's superuser here (POSTGRES_USER above): pgBackRest's, never the club's
     volumes:
       - db:/var/lib/postgresql/data:ro
       - pgrun:/var/run/postgresql

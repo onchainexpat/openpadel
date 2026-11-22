@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,7 +16,7 @@ function rewrittenWhileRunning(script: string, args: string[], command: string, 
     try {
       writeFileSync(copy, read(script));
       // release.sh reads the server's settings before anything else: a scratch file of them.
-      writeFileSync(join(dir, "kumi.env"), "KUMI_SECRET_KEY=test\nDATABASE_URL=postgresql://nobody@/none\n");
+      writeFileSync(join(dir, "kumi.env"), "OPENPADEL_SECRET_KEY=test\nDATABASE_URL=postgresql://nobody@/none\n");
       const junk = "echo REWRITTEN-RAN; exit 9\n".repeat(Math.ceil((statSync(copy).size * 3) / 27));
       spawnSync("mkdir", [bin]);
       // In place (the same file, truncated and written), never a new one: a new file wouldn't reach the running copy.
@@ -24,7 +24,7 @@ function rewrittenWhileRunning(script: string, args: string[], command: string, 
       // string may hold, and the run wouldn't start at all.
       writeFileSync(join(dir, "junk"), junk);
       writeFileSync(join(bin, command), `#!/bin/sh\n${rewrite ? `cat "$KUMI_JUNK_FILE" > "$KUMI_COPY"` : ":"}\n${answer}\n`, { mode: 0o755 });
-      const r = spawnSync("bash", [copy, ...args], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, KUMI_JUNK_FILE: join(dir, "junk"), KUMI_COPY: copy, KUMI_ROOT: dir, KUMI_ENV_FILE: join(dir, "kumi.env") } });
+      const r = spawnSync("bash", [copy, ...args], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, KUMI_JUNK_FILE: join(dir, "junk"), KUMI_COPY: copy, OPENPADEL_ROOT: dir, OPENPADEL_ENV_FILE: join(dir, "kumi.env") } });
       return { out: `${r.stdout}${r.stderr}`.replaceAll(dir, "<dir>"), status: r.status };
     } finally { rmSync(dir, { recursive: true, force: true }); }
   };
@@ -99,12 +99,12 @@ test("a fresh server and an updated one get the same Caddy sites, and an update 
   const block = (text: string) => { const m = /# --- caddy sites \(the same in server-setup\.sh and release\.sh\) ---\n([\s\S]*?)# --- end caddy sites ---/.exec(text); assert.ok(m, "no caddy sites block"); return m[1]!; };
   const setup = read("deploy/server-setup.sh"), release = read("deploy/release.sh");
   assert.equal(block(setup), block(release));
-  assert.match(setup, /kumi_sites "\$KUMI_HOST" "staff\.\$KUMI_HOST" "\$upstream" \/opt\/kumi\/app > \/etc\/caddy\/Caddyfile/);
+  assert.match(setup, /kumi_sites "\$CLUB_HOST" "staff\.\$CLUB_HOST" "\$upstream" \/opt\/kumi\/app > \/etc\/caddy\/Caddyfile/);
   // The API's paths and the apps' policy come from the release being installed (its own server-setup.sh), checked
   // by Caddy before the switch, and taken without dropping connections.
   assert.match(release, /local f="\$ROOT\/releases\/\$1\/deploy\/server-setup\.sh"/);
   assert.match(release, /\$CADDY validate --config "\$next" --adapter caddyfile/);
-  assert.match(release, /CADDY_RELOAD=\$\{KUMI_CADDY_RELOAD:-systemctl reload caddy\}/);
+  assert.match(release, /CADDY_RELOAD=\$\{OPENPADEL_CADDY_RELOAD:-\$\{KUMI_CADDY_RELOAD:-systemctl reload caddy\}\}/);
   assert.match(release, /if \$RESTART && check "\$new" && caddy_use "\$caddy"; then/);
 });
 
@@ -158,7 +158,7 @@ test("Docker: point-in-time backups beside Postgres, as its own user, never in t
   assert.match(db, /pitr-conf:\/etc\/pgbackrest:ro/);
   // The pitr service: the db image's postgres user, the database's folder read-only, Postgres's socket, the archive.
   assert.match(docker, /FROM db AS pitr\n[\s\S]*USER postgres\n/);
-  for (const want of ["db:/var/lib/postgresql/data:ro", "pgrun:/var/run/postgresql", "pitr:/var/lib/pgbackrest", "pitr-conf:/etc/pgbackrest", "pitr-work:/var/lib/kumi-pitr", "init: true", "KUMI_PITR_PG_USER: kumi"])
+  for (const want of ["db:/var/lib/postgresql/data:ro", "pgrun:/var/run/postgresql", "pitr:/var/lib/pgbackrest", "pitr-conf:/etc/pgbackrest", "pitr-work:/var/lib/kumi-pitr", "init: true", "OPENPADEL_PITR_PG_USER: kumi"])
     assert.ok(p.includes(want), want);
   assert.match(p, /DATABASE_URL: postgresql:\/\/kumi_app:/, "the club's database as kumi_app, like the server");
   // Nothing of it reaches the server's container: no socket (local connections there are Postgres's superuser), no
@@ -166,7 +166,7 @@ test("Docker: point-in-time backups beside Postgres, as its own user, never in t
   for (const s of [kumi, backup]) assert.ok(!/pgrun|pitr|pgbackrest/.test(s), s);
   assert.match(docker, /FROM node:24\.22\.0-bookworm-slim AS server\n[\s\S]*?USER node\n/);
   // The service writes the settings, makes the archive before Postgres is told to use it, then ticks hourly at :37.
-  assert.match(pitr, /KUMI_PITR_SYSTEM_ID=\$sid kumi pitr conf > "\$conf\.new"; rc=\$\?/);
+  assert.match(pitr, /OPENPADEL_PITR_SYSTEM_ID=\$sid kumi pitr conf > "\$conf\.new"; rc=\$\?/);
   assert.match(pitr, /pgbackrest --config="\$conf\.new" --stanza=kumi --log-level-console=warn stanza-create[\s\S]*mv -f "\$conf\.new" "\$conf"/);
   // A base backup at every start: after a stretch without archiving, the minutes since are reachable at once.
   assert.match(pitr, /tick=--now\nwhile :; do\n\s+kumi pitr tick \$tick; tick=\n\s+kumi pitr test --scheduled/);
@@ -222,4 +222,46 @@ test("making the point-in-time archive waits out archive-push's lock, and says i
     assert.match(run(99), /\[050\][\s\S]*isn't ready[\s\S]*tries 6\n$/, `${file}: still locked after six tries`);
     assert.match(run(99, "ERROR: [055]: unable to load info file"), /\[055\][\s\S]*isn't ready[\s\S]*tries 1\n$/, `${file}: any other error at once`);
   }
+});
+
+test("the deploy files write OPENPADEL_ settings, and still read a server's old KUMI_ ones", () => {
+  const setup = read("deploy/server-setup.sh"), release = read("deploy/release.sh"), update = read("deploy/docker/update.sh"), compose = read("compose.yaml");
+  const made = /cat > \/etc\/kumi\/kumi\.env <<ENV\n([\s\S]*?)\nENV\n/.exec(setup)![1]!;
+  assert.ok(!made.includes("KUMI_") && made.includes("OPENPADEL_SECRET_KEY=") && made.includes("OPENPADEL_PRACTICE=1"), "a new server's settings use the new names");
+  assert.ok(!read("deploy/docker/env.example").includes("KUMI_"));
+  assert.match(setup, /CLUB_HOST=\$\{OPENPADEL_HOST:-\$\{KUMI_HOST:-\}\}/);
+  assert.match(setup, /sock=\$\(sed -n 's\/\^OPENPADEL_SOCKET=\/\/p' [^;]+; \[ -n "\$sock" \] \|\| sock=\$\(sed -n 's\/\^KUMI_SOCKET=\/\/p'/);
+  assert.match(release, /SOCKET=\$\{OPENPADEL_SOCKET:-\$\{KUMI_SOCKET:-\}\}/);
+  assert.match(release, /grep -qE '\^\(OPENPADEL\|KUMI\)_SECRET_KEY=\.' "\$ENV_FILE"/, "a server with the old key name doesn't get a second key");
+  assert.match(release, /host_of "\$\{OPENPADEL_MEMBER_URL:-\$\{KUMI_MEMBER_URL:-\}\}"/);
+  // Every swappable path and command in release.sh takes either name.
+  for (const m of release.matchAll(/^[A-Z_]+=\$\{(OPENPADEL|KUMI)_([A-Z_]+)/gm)) assert.equal(m[1], "OPENPADEL", m[0]);
+  assert.match(update, /grep -qE '\^\(OPENPADEL\|KUMI\)_SECRET_KEY=\.' \.env/);
+  assert.match(update, /pw=\$\(envget DB_PASSWORD\)/);
+  assert.match(update, /OPENPADEL_TAG=\$1 KUMI_TAG=\$1 docker compose up/, "going back to an older compose.yaml still finds its tag");
+  for (const want of ["${OPENPADEL_DB_PASSWORD:-${KUMI_DB_PASSWORD:?", "${OPENPADEL_HOST:-${KUMI_HOST:?", "${OPENPADEL_TAG:-${KUMI_TAG:-local}}"]) assert.ok(compose.includes(want), want);
+  assert.ok(read("deploy/docker/Caddyfile").includes("{$OPENPADEL_HOST}"));
+  assert.match(read("deploy/docker/db-init.sh"), /\$\{OPENPADEL_DB_PASSWORD:-\$\{KUMI_DB_PASSWORD:-\}\}/);
+});
+
+test("update.sh rename-settings: .env's old names to new, a copy kept, no value changed or printed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "kumi-rename-"));
+  try {
+    const env = "OPENPADEL_SECRET_KEY=k1\nKUMI_HOST=app.kestrel.example\n# a note\nKUMI_DB_PASSWORD=p4ss=w0rd\nOPENPADEL_LANG=es\nKUMI_LANG=es\nOPENPADEL_TAG=new\nKUMI_TAG=old\n";
+    writeFileSync(join(dir, ".env"), env, { mode: 0o600 });
+    const bin = join(dir, "bin"); spawnSync("mkdir", [bin]);
+    writeFileSync(join(bin, "git"), `#!/bin/sh\n[ "$1" = rev-parse ] && echo ${dir}\n`, { mode: 0o755 });
+    const go = () => spawnSync("bash", [new URL("../../../deploy/docker/update.sh", import.meta.url).pathname, "rename-settings"], { cwd: dir, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+    const r = go();
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(!/p4ss|kestrel|k1\b/.test(r.stdout + r.stderr), "names only");
+    assert.equal(readFileSync(join(dir, ".env"), "utf8"), "OPENPADEL_SECRET_KEY=k1\nOPENPADEL_HOST=app.kestrel.example\n# a note\nOPENPADEL_DB_PASSWORD=p4ss=w0rd\nOPENPADEL_LANG=es\n"
+      + "OPENPADEL_TAG=new\n# OPENPADEL_TAG is set too, and is the one used; the old line, as it was:\n# KUMI_TAG=old\n");
+    assert.equal(statSync(join(dir, ".env")).mode & 0o777, 0o600);
+    const copy = readdirSync(dir).find((f) => f.startsWith(".env.before-rename-"))!;
+    assert.equal(readFileSync(join(dir, copy), "utf8"), env);
+    const again = go();
+    assert.equal(again.status, 0); assert.match(again.stdout, /nothing to do/);
+    assert.equal(readdirSync(dir).filter((f) => f.startsWith(".env.before-rename-")).length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

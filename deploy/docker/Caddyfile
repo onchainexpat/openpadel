@@ -1,4 +1,4 @@
-# Caddy for Kumi in Docker: HTTPS for the members' app ({$KUMI_HOST}) and the staff app (staff.{$KUMI_HOST}),
+# Caddy for Kumi in Docker: HTTPS for the members' app ({$OPENPADEL_HOST}) and the staff app (staff.{$OPENPADEL_HOST}),
 # the API on its paths, and the apps' security headers. Keep the policy the same as server-setup.sh's
 # (a test checks they match).
 
@@ -28,9 +28,9 @@
 	}
 }
 
-{$KUMI_HOST} {
+{$OPENPADEL_HOST} {
 	import kumi member
 }
-staff.{$KUMI_HOST} {
+staff.{$OPENPADEL_HOST} {
 	import kumi manager
 }
