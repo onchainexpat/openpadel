@@ -197,13 +197,16 @@ test("Connectors: built-in services and plugins as one kind of card, with their 
   forgetConnectorChecks();
   const secret = "re_live_abcdefghijklmnop9F2A", backup = "backup-key-that-nobody-reads-ZZ99";
   const v = await connectors(db, "en", { production: false, env: { KUMI_RESEND_API_KEY: secret, KUMI_MAIL_FROM: "Kestrel <hi@kestrel.test>", KUMI_BACKUP_KEY: backup }, fresh: true });
-  assert.deepEqual(v.built_ins.map((b) => b.key), ["stripe", "resend", "twilio", "playtomic", "offsite"]);
+  assert.deepEqual(v.built_ins.map((b) => b.key), ["stripe", "resend", "twilio", "playtomic", "offsite", "ai"]);
   const resend = v.built_ins.find((b) => b.key === "resend")!;
   assert.equal(resend.status, "waiting", "email in practice is waiting for go-live");
-  assert.deepEqual(resend.settings.find((s) => s.name === "OPENPADEL_RESEND_API_KEY"), { name: "OPENPADEL_RESEND_API_KEY", added: true, last4: "9F2A" });
+  assert.deepEqual(resend.settings.find((s) => s.name === "OPENPADEL_RESEND_API_KEY"), { field: "api_key", name: "OPENPADEL_RESEND_API_KEY", secret: true, needed: true, set: true, source: "server", last4: "9F2A", value: null },
+    "set under its old name in the settings file: said by its new one, on the server");
   assert.equal(v.built_ins.find((b) => b.key === "stripe")!.status, "off");
   const offsite = v.built_ins.find((b) => b.key === "offsite")!;
-  assert.deepEqual(offsite.settings.find((s) => s.name === "OPENPADEL_BACKUP_KEY"), { name: "OPENPADEL_BACKUP_KEY", added: true, last4: null }, "the backup key: there, nothing of it shown");
+  assert.deepEqual(offsite.settings.find((s) => s.name === "OPENPADEL_BACKUP_KEY"), { field: "backup_key", name: "OPENPADEL_BACKUP_KEY", secret: true, needed: true, set: true, source: "server", last4: null, file_only: true },
+    "the backup key: there, nothing of it shown, and only ever in the settings file");
+  assert.ok(!offsite.form.fields.some((f) => f.name === "OPENPADEL_BACKUP_KEY"), "never in the app's form");
   const text = JSON.stringify(v);
   assert.ok(!text.includes(secret) && !text.includes(backup) && !text.includes("ZZ99"), "no key in what it says");
   const lights = v.plugins.find((p) => p.name === "court-lights")!;

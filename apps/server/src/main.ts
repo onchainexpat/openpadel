@@ -1,7 +1,7 @@
-import { deliverRegistrations, fanOutWebhooks, sendWebhooks, tidyAgentTokens, playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, tidyLevelProofs, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, sendWhatsApp, dropWaitingTexts, setTexting, setAnswerer, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, setPluginIo, type Texter } from "@kumi/core";
+import { deliverRegistrations, fanOutWebhooks, sendWebhooks, tidyAgentTokens, playersWanted, readPlaytomicPlayers, loadClubFormat, checkMoneyAfterRestore, dropForeignFound, plainStoredText, reviewFound, checkKeptFound, tidyChats, tidyAssistantChats, eraseAfterRestore, resealAll, remindLeaving, setSecretKeys, tidyVaultUploads, tidyLevelProofs, expireSupport, alertUnanswered, decidePrograms, sendBroadcasts, clubStripeAccount, confirmScores, connect, endLapsedMemberships, remindMembershipEnds, expireHolds, expireOffers, migrate, registerMessageTopics, releaseSeats, remindBookings, renewMemberships, tidyPresales, settleShares, PlaytomicClient, processOutbox, reconcilePayments, sendPushes, tidyFamilyCards, tidyCardsOnFile, refreshStripeAccount, sendEmails, setPaymentProvider, StripeProvider, comparePlaytomic, syncMirror, syncMirrorFar, sendTexts, sendWhatsApp, dropWaitingTexts, setTexting, setAnswerer, staffOnly, TestProvider, serviceEnv, onServiceSettingsChange, setStaffAddress, issueReceipts, paymentProvider, closeUnfinishedPayments, lapseUnpaidPlaces, extendBlockSeries, bookSeriesWeeks, registeredSender, textingOn, TextError, jobFailed, jobWorked, countAi, parsePrices, setPrices, setPluginIo, type Texter } from "@kumi/core";
 import { makeApp } from "./app.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
-import { MemoryMailer, MeteredMailer, PracticeMailer, ResendMailer, type Mailer } from "./mailer.ts";
+import { LiveMailer, MemoryMailer, MeteredMailer, type Mailer } from "./mailer.ts";
 import { hasSender, PracticeTexter, TwilioTexter, twilioFromEnv, type TwilioConfig } from "./twilio.ts";
 import { checkTextingNumber, refreshTexting } from "./texting.ts";
 import { watchHealth } from "./health.ts";
@@ -30,13 +30,16 @@ catch (e) { console.error(`OPENPADEL_SECRET_KEY: ${(e as Error).message}`); proc
 try { setPrices(parsePrices(setting("PRICES"))); }
 catch (e) { console.error((e as Error).message); process.exit(1); }
 
+const db = connect();
+// Each service's settings: the settings file, else what the owner set in the app (service_settings.ts). Read again
+// every round of the jobs below, so a key set in the app is used without a restart.
+let svc = await serviceEnv(db);
 // Live with no email key, sign-in codes would only be written to the log, readable by anyone who can read it:
 // refuse to start instead. In practice (and development) the log is how the owner signs in before email is set up.
-if (!setting("RESEND_API_KEY") && production && setting("PRACTICE") !== "1") {
+if (!setting("RESEND_API_KEY", svc) && production && setting("PRACTICE") !== "1") {
   console.error("email isn't set up (OPENPADEL_RESEND_API_KEY and OPENPADEL_MAIL_FROM): live, members' sign-in codes would only go to the log. Set up email (docs/setup/accounts/resend.md), or keep OPENPADEL_PRACTICE=1 until it is.");
   process.exit(1);
 }
-const db = connect();
 const applied = await migrate(db);
 if (applied.length) console.log(`migrations applied: ${applied.join(", ")}`);
 const newTopics = await registerMessageTopics(db);   // before any event is handled: see message_topic
@@ -63,24 +66,34 @@ const membersUrl = memberUrl(publicUrl);
 // Someone given a staff role is told by email where the staff app is (messages.ts).
 setStaffAddress(publicUrl);
 
-// Card payments go through Stripe when a key is set (from the environment, never the database or the
-// code); otherwise the stand-in. Self-hosted, the key is the club's own. Hosted (OPENPADEL_STRIPE_CONNECT=1),
-// it's Kumi's platform key and payments go into the club's own connected account. A live key is
-// refused outside production.
-const stripeKey = setting("STRIPE_SECRET_KEY"), connectMode = setting("STRIPE_CONNECT") === "1";
-let stripe: StripeProvider | null = null;
-if (stripeKey) {
-  stripe = new StripeProvider({ secretKey: stripeKey, ...(connectMode ? { connect: clubStripeAccount(db) } : {}) });
-  if (stripe.live && !production) { console.error("refusing a LIVE Stripe key outside production; use a test key (sk_test_)"); process.exit(1); }
+// Card payments go through Stripe when a key is set (the settings file or the app, never the code); otherwise the
+// stand-in. Self-hosted, the key is the club's own. Hosted (OPENPADEL_STRIPE_CONNECT=1), it's Kumi's platform key and
+// payments go into the club's own connected account. A live key is refused outside production: at the start, the
+// server stops; set in the app later, it isn't used (the app refuses one in practice anyway).
+const connectMode = setting("STRIPE_CONNECT") === "1";
+let stripe: StripeProvider | null = null, stripeKey: string | undefined;
+const stripeConfig: { publishableKey?: string; webhookSecret?: string } = {};
+const useStripe = (e: Record<string, string | undefined>, starting: boolean) => {
+  stripeConfig.publishableKey = setting("STRIPE_PUBLISHABLE_KEY", e); stripeConfig.webhookSecret = setting("STRIPE_WEBHOOK_SECRET", e);
+  const key = setting("STRIPE_SECRET_KEY", e)?.trim() || undefined;
+  if (key === stripeKey) return;
+  if (!key) { stripeKey = undefined; stripe = null; setPaymentProvider(new TestProvider()); console.log("payments: no Stripe key now, so the stand-in"); return; }
+  const next = new StripeProvider({ secretKey: key, ...(connectMode ? { connect: clubStripeAccount(db) } : {}) });
+  if (next.live && !production) {
+    console.error("refusing a LIVE Stripe key outside production; use a test key (sk_test_)");
+    if (starting) process.exit(1);
+    return;
+  }
+  stripeKey = key; stripe = next; walletDone = null;
   setPaymentProvider(stripe);
   console.log(`payments: stripe (${stripe.live ? "live" : "test mode"}${connectMode ? ", the club's connected account" : ""})`);
-}
-const stripeConfig = { publishableKey: setting("STRIPE_PUBLISHABLE_KEY"), webhookSecret: setting("STRIPE_WEBHOOK_SECRET") };
+};
 // Apple Pay and Google Pay show on the members' card form only on a domain registered with Stripe (on the club's own
 // account under Connect). The jobs below register it until it's done: at start, or once a connected club's
 // account exists. Nothing to do on a laptop or a name Stripe can't register.
 const walletHost = walletDomainOf(membersUrl);
 let walletDone: string | null = null, walletNext = 0;   // the account (or "direct") it's registered on; tried at most hourly
+useStripe(svc, true);
 const registerWallets = async () => {
   if (!stripe || !walletHost || Date.now() < walletNext) return;
   const where = stripe.connect ? (await db.selectFrom("club").select("stripe_account_id").executeTakeFirst())?.stripe_account_id ?? null : "direct";
@@ -92,66 +105,82 @@ const registerWallets = async () => {
   console.log(`payments: ${walletHost} registered for Apple Pay (${d.applePay}) and Google Pay (${d.googlePay})${d.problem ? `: ${d.problem}` : ""}`);
 };
 // Email: with a Resend key, from the club's own domain (OPENPADEL_MAIL_FROM, like "Kestrel Padel <hello@kestrelpadel.com>").
-// Outside production, or with OPENPADEL_PRACTICE=1, it only reaches OPENPADEL_MAIL_TEST_TO (comma-separated); without a key it stays in the log.
-let mailer: Mailer = new MemoryMailer(true);
-let mailReach: "sent" | "log" | "practice" = "log";
-if (setting("RESEND_API_KEY")) {
-  const from = setting("MAIL_FROM");
-  if (!from) { console.error("OPENPADEL_RESEND_API_KEY needs OPENPADEL_MAIL_FROM, the address on the club's own domain"); process.exit(1); }
-  // Each email Resend takes counts on the club's monthly meter (usage.ts); held practice email doesn't.
-  const resend = new MeteredMailer(new ResendMailer({ apiKey: setting("RESEND_API_KEY")!, from, replyTo: setting("MAIL_REPLY_TO") }), db);
-  const testTo = (setting("MAIL_TEST_TO") ?? "").split(",");
-  // A trial server runs in production mode (HTTPS cookies) but still in practice until the club switches over.
-  const practice = !production || setting("PRACTICE") === "1";
-  mailer = practice ? new PracticeMailer(resend, testTo) : resend;
-  mailReach = practice ? "practice" : "sent";
-  console.log(`email: resend from ${from}${practice ? `, practice: only to ${testTo.filter(Boolean).length} test addresses` : ""}`);
+// Outside production, or with OPENPADEL_PRACTICE=1, it only reaches OPENPADEL_MAIL_TEST_TO (comma-separated); without a
+// key it stays in the log. The key may be set in the app at any time: each email reads the settings as they are now
+// (LiveMailer), so the next one goes through Resend without a restart.
+const practiceMail = !production || setting("PRACTICE") === "1";
+const liveMailer = new LiveMailer(async () => {
+  const e = await serviceEnv(db), apiKey = setting("RESEND_API_KEY", e)?.trim(), from = setting("MAIL_FROM", e)?.trim();
+  return apiKey && from ? { apiKey, from, replyTo: setting("MAIL_REPLY_TO", e) || undefined, testTo: (setting("MAIL_TEST_TO", e) ?? "").split(","), practice: practiceMail } : null;
+}, { log: new MemoryMailer(true), wrap: (m) => new MeteredMailer(m, db) });
+const mailer: Mailer = liveMailer;
+const mailReach = (): "sent" | "log" | "practice" => liveMailer.reach();
+{
+  const apiKey = setting("RESEND_API_KEY", svc), from = setting("MAIL_FROM", svc);
+  if (apiKey && !from) { console.error("OPENPADEL_RESEND_API_KEY needs OPENPADEL_MAIL_FROM, the address on the club's own domain"); process.exit(1); }
+  await liveMailer.refresh();
+  if (apiKey) console.log(`email: resend from ${from}${practiceMail ? `, practice: only to ${(setting("MAIL_TEST_TO", svc) ?? "").split(",").filter(Boolean).length} test addresses` : ""}`);
 }
 // Texts: through the club's own Twilio account when it's set up (twilio.ts). In practice, like email, only the
 // club's test numbers (OPENPADEL_SMS_TEST_TO, comma-separated) get them; the rest are held and logged.
 // Who texts are from: the settings file's sender, or else the Messaging Service `kumi texting` registered, from
 // the moment Twilio approves it (texting.ts asks every hour while the review runs).
 let twilio: ReturnType<typeof twilioFromEnv> = null;
-try { twilio = twilioFromEnv(process.env); } catch (e) { console.error(`texts: ${(e as Error).message}`); process.exit(1); }
+try { twilio = twilioFromEnv(svc); } catch (e) { console.error(`texts: ${(e as Error).message}`); process.exit(1); }
 let sending: Texter | null = null;
 const startTexts = (cfg: TwilioConfig) => {
   const practice = !production || setting("PRACTICE") === "1", testTo = (setting("SMS_TEST_TO") ?? "").split(",");
   sending = practice ? new PracticeTexter(new TwilioTexter(cfg), testTo) : new TwilioTexter(cfg);
   setTexting(true);
-  console.log(`texts: twilio${cfg.messagingServiceSid && !setting("TWILIO_MESSAGING_SERVICE_SID") ? ", from the registered Messaging Service" : ""}${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
+  console.log(`texts: twilio${cfg.messagingServiceSid && !setting("TWILIO_MESSAGING_SERVICE_SID", svc) ? ", from the registered Messaging Service" : ""}${practice ? `, practice: only to ${testTo.filter((n) => n.trim()).length} test numbers` : ""}`);
 };
-const twilioApi = twilio ? new TwilioApi(twilio.accountSid, twilio.authToken) : null;
-if (twilio) {
-  const registered = hasSender(twilio) ? null : await registeredSender(db);
-  if (hasSender(twilio)) startTexts(twilio);
-  else if (registered) startTexts({ ...twilio, messagingServiceSid: registered });
+let twilioApi = twilio ? new TwilioApi(twilio.accountSid, twilio.authToken) : null;
+/** Texts with the Twilio account as the settings have it now: at the start, and again whenever its settings change. */
+const useTwilio = async (cfg: typeof twilio) => {
+  twilio = cfg; sending = null; setTexting(false);
+  twilioApi = cfg ? new TwilioApi(cfg.accountSid, cfg.authToken) : null;
+  if (!cfg) return;
+  const registered = hasSender(cfg) ? null : await registeredSender(db);
+  if (hasSender(cfg)) startTexts(cfg);
+  else if (registered) startTexts({ ...cfg, messagingServiceSid: registered });
   else console.log("texts: the Twilio account is set, but no sender yet; texts are off until `kumi texting` is approved");
-}
-// The routes get one texter for good; it sends through whichever is set up, once one is.
+};
+await useTwilio(twilio);
+// The routes get one texter for good; it sends through whichever is set up, once one is (texts are on only then).
 let textingNext = 0;   // when to ask Twilio about the texting registration again
 let watchNext = 0, numberNext = 0, tidyNext = 0;     // when to look at texts and ask the club's answers again (every 5 minutes)
-const texter: Texter | null = twilio ? { send: (x) => { if (!sending) throw new TextError("no_sender", "texts aren't set up to send yet", false); return sending.send(x); } } : null;
+const texter: Texter = { send: (x) => { if (!sending) throw new TextError("no_sender", "texts aren't set up to send yet", false); return sending.send(x); } };
 // Ask the club: with a decision model's key (OPENPADEL_TYPESAFE_API_KEY for Jev, OPENPADEL_ANTHROPIC_API_KEY for Claude
 // Haiku, or both), Kumi answers a new question from the club's facts, word for word, or hands it to the staff
 // (answerer.ts). The club can still switch it off in Settings. Without a key every question goes to the staff.
 // Each model's answer counts on the club's monthly meter (usage.ts).
-const answerer = answererFromEnv(process.env, undefined, (u) => countAi(db, "ai_decisions", u.model, u.tokens));
-if (answerer) { setAnswerer(answerer); console.log(`ask the club: answered by ${answerer.name}`); }
 // Drafts of the club's own words in its other language, for staff to check (translate.ts): the same Anthropic key.
-setTranslator(translatorFromEnv(process.env));
 // Ask openPadel, the hosted assistant for staff and members (assistant.ts): the same Anthropic key. Without one it's off,
-// and the apps say how to turn it on.
-const assistant = modelFromEnv(process.env);
-if (assistant) console.log("ask openpadel: on (Claude Sonnet for staff, Claude Haiku for members)");
+// and the apps say how to turn it on. All three again whenever the keys change.
+let aiKeys = "", assistant: ReturnType<typeof modelFromEnv> = null;
+const useAi = (e: Record<string, string | undefined>) => {
+  const keys = `${setting("TYPESAFE_API_KEY", e)?.trim() ?? ""}\n${setting("ANTHROPIC_API_KEY", e)?.trim() ?? ""}`;
+  if (keys === aiKeys) return;
+  aiKeys = keys;
+  const answerer = answererFromEnv(e, undefined, (u) => countAi(db, "ai_decisions", u.model, u.tokens));
+  setAnswerer(answerer ?? staffOnly);
+  if (answerer) console.log(`ask the club: answered by ${answerer.name}`);
+  setTranslator(translatorFromEnv(e));
+  assistant = modelFromEnv(e);
+  if (assistant) console.log("ask openpadel: on (Claude Sonnet for staff, Claude Haiku for members)");
+};
+useAi(svc);
 // Bot protection on sign-up, sign-in codes and checkout. OPENPADEL_BOT_CHECK=0 leaves it off on a practice
 // machine (scripts that sign in over the API); production refuses to start that way.
 const botCheck = setting("BOT_CHECK") !== "0";
 if (!botCheck && production) { console.error("OPENPADEL_BOT_CHECK=0 isn't allowed in production"); process.exit(1); }
 // The session cookie's old name, still read (and moved) over HTTPS for one release (session_cookie.ts).
 const legacySessionCookie = setting("LEGACY_SESSION_COOKIE") !== "0";
-const server = await listen(makeApp({ assistant, db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, pluginCatalogUrl: setting("PLUGIN_CATALOG_URL") || null, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
-  emailEvents: { secret: setting("RESEND_WEBHOOK_SECRET") || null, from: setting("MAIL_FROM") || null },
-  ...(texter && twilio ? { texts: { texter, authToken: twilio.authToken } } : {}) }).fetch, listenAt);
+// What reads a service's setting at a request reads it as it is now (useStripe and the rest keep these up to date).
+const emailEvents = { secret: setting("RESEND_WEBHOOK_SECRET", svc) || null, from: setting("MAIL_FROM", svc) || null };
+const texts = { texter, get authToken() { return twilio?.authToken ?? null; } };
+const server = await listen(makeApp({ assistant: () => assistant, db, mailer, mailReach, publicUrl, memberUrl: membersUrl, secureCookies: production, legacySessionCookie, production, stripe: stripeConfig, botCheck, pluginCatalogUrl: setting("PLUGIN_CATALOG_URL") || null, databaseUrl: process.env.DATABASE_URL ?? "postgres://postgres@127.0.0.1:55432/kumi",
+  emailEvents, texts }).fetch, listenAt);
 // With OPENPADEL_PLUGIN_CATALOG_URL unset, a production server reads openPadel's own catalog online (the bundled sample offline).
 if (production) setPluginIo({ ownCatalogOnline: true });
 console.log(`kumi server on ${describeListen(listenAt, server)}`);
@@ -166,7 +195,23 @@ const postWebhook = webhookPost(production, async (u) => Boolean(await db.select
   .where("local_port", "=", Number(u.port)).executeTakeFirst()));
 const pushContact = setting("PUSH_CONTACT") ?? (publicUrl.startsWith("https://") ? publicUrl : "mailto:owner@localhost");
 const jobsState = newJobsState();
+/** The services as their settings are now (the settings file, then the app): what changed is used from here on. */
+let twilioWas = JSON.stringify(twilio);
+const refreshServices = async () => {
+  svc = await serviceEnv(db);
+  useStripe(svc, false);
+  useAi(svc);
+  emailEvents.secret = setting("RESEND_WEBHOOK_SECRET", svc) || null; emailEvents.from = setting("MAIL_FROM", svc) || null;
+  await liveMailer.refresh();
+  let cfg: typeof twilio = null;
+  try { cfg = twilioFromEnv(svc); } catch (e) { console.error(`texts: ${(e as Error).message}`); return; }
+  if (JSON.stringify(cfg) !== twilioWas) { twilioWas = JSON.stringify(cfg); await useTwilio(cfg); }
+};
+// A change made in this server (a key set on a Connectors card) is used at once; one made by the server's command line
+// within a round of the jobs.
+onServiceSettingsChange(() => { setTimeout(() => void refreshServices().catch((e) => console.error("settings:", (e as Error).message)), 50); });
 const jobSteps: JobStep[] = [
+  ["service settings", refreshServices],
   // A change to the club's currency or formats reaches every message within a round.
   ["club_format", () => loadClubFormat(db)],
   ["outbox", async () => {
@@ -188,7 +233,7 @@ const jobSteps: JobStep[] = [
   }],
   ["texts", async () => {
     // Texts, with Twilio's delivery reports coming back to this server; with texts switched off, none wait.
-    if (texter && textingOn()) {
+    if (textingOn()) {
       const tx = await sendTexts(db, texter, { memberUrl: membersUrl, ...(publicUrl.startsWith("https://") ? { statusCallback: `${publicUrl.replace(/\/$/, "")}/webhooks/twilio/status` } : {}) });
       if (tx.sent || tx.dropped || tx.failed) console.log(`texts: ${tx.sent} sent, ${tx.dropped} dropped, ${tx.failed} failed or to retry`);
     } else if (await dropWaitingTexts(db)) console.log("texts: switched off, so the ones waiting were dropped");
@@ -349,7 +394,7 @@ const jobSteps: JobStep[] = [
     // Texts getting through and ask the club's model answering: staff hear once when either starts failing.
     if (Date.now() >= watchNext) {
       watchNext = Date.now() + 300_000;
-      await watchHealth(db, { texting: Boolean(texter) && textingOn(), models: answerModels(process.env) });
+      await watchHealth(db, { texting: textingOn(), models: answerModels(svc) });
     }
   }],
   ["texting number", async () => {
@@ -391,30 +436,38 @@ void jobs();
 // environment, never the database or the code). One sync at a time, then a rest; pages are a minute apart.
 // Each sync reads the near window, then at most one 30-day slice of what's further ahead (as far as Kumi has
 // anything on a court, or members can book), each slice again after OPENPADEL_MIRROR_FAR_EVERY_HOURS.
-const pt = { clientId: setting("PLAYTOMIC_CLIENT_ID"), secret: setting("PLAYTOMIC_SECRET"), tenantId: setting("PLAYTOMIC_TENANT_ID") };
-if (pt.clientId && pt.secret && pt.tenantId) {
-  const num = (v: string | undefined, d: number) => { const n = Number(v); return v !== undefined && v !== "" && Number.isFinite(n) && n >= 0 ? n : d; };
-  const client = new PlaytomicClient({ clientId: pt.clientId, secret: pt.secret, tenantId: pt.tenantId, pageDelayMs: num(setting("MIRROR_PAGE_SECONDS"), 60) * 1000 });
-  const every = num(setting("MIRROR_EVERY_MINUTES"), 10) * 60_000, daysAhead = num(setting("MIRROR_DAYS_AHEAD"), 30);
-  const farEvery = num(setting("MIRROR_FAR_EVERY_HOURS"), 6) * 3600_000, farRead = new Map<number, number>();
-  const day = (d: Date) => d.toISOString().slice(0, 10);
-  const loop = async () => {
-    try {
-      const r = await syncMirror(db, client, { daysAhead });
-      console.log(r.ok ? `playtomic mirror: ${r.fetched} read, ${r.changes} changed, ${r.unmapped.length} courts to link` : `playtomic mirror failed: ${r.error}`);
-      const f = r.ok && farEvery > 0 ? await syncMirrorFar(db, client, { daysAhead, everyMs: farEvery, lastRead: farRead }) : null;
-      if (f) console.log(f.ok ? `playtomic mirror, ${day(f.from)} to ${day(f.to)}: ${f.fetched} read, ${f.changes} changed` : `playtomic mirror, ${day(f.from)} to ${day(f.to)}, failed (tried again next time): ${f.error}`);
-      // Once a club day: Playtomic and Kumi compared, and any new difference told to the owners (playtomic_archive.ts).
-      const cmp = r.ok ? await comparePlaytomic(db).catch((e: Error) => { console.error("playtomic comparison:", e.message); return null; }) : null;
-      if (cmp?.ran) console.log(`playtomic comparison: ${cmp.differences} differences, ${cmp.told} new told to the owners`);
-      // Staff asked for Playtomic's players (moving in, brought_in.ts): read them all, at the same pace.
-      if (await playersWanted(db)) {
-        const p = await readPlaytomicPlayers(db, client);
-        console.log(p.ok ? `playtomic players: ${p.read} read, ${p.changed} changed` : `playtomic players failed: ${p.error}`);
-      }
-    } catch (e) { console.error("playtomic mirror:", (e as Error).message); }
-    finally { setTimeout(loop, every); }
-  };
-  void loop();
-  console.log("playtomic mirror on");
-}
+const num = (v: string | undefined, d: number) => { const n = Number(v); return v !== undefined && v !== "" && Number.isFinite(n) && n >= 0 ? n : d; };
+const every = num(setting("MIRROR_EVERY_MINUTES"), 10) * 60_000, daysAhead = num(setting("MIRROR_DAYS_AHEAD"), 30);
+const farEvery = num(setting("MIRROR_FAR_EVERY_HOURS"), 6) * 3600_000, farRead = new Map<number, number>();
+const day = (d: Date) => d.toISOString().slice(0, 10);
+// The keys as they are now: set in the app later, the mirror starts within a minute; changed, it uses the new ones.
+let ptClient: PlaytomicClient | null = null, ptKeys = "";
+const ptLoop = async () => {
+  let wait = 60_000;
+  try {
+    const pt = { clientId: setting("PLAYTOMIC_CLIENT_ID", svc), secret: setting("PLAYTOMIC_SECRET", svc), tenantId: setting("PLAYTOMIC_TENANT_ID", svc) };
+    const keys = pt.clientId && pt.secret && pt.tenantId ? `${pt.clientId}\n${pt.secret}\n${pt.tenantId}` : "";
+    if (keys !== ptKeys) {
+      ptKeys = keys;
+      ptClient = keys ? new PlaytomicClient({ clientId: pt.clientId!, secret: pt.secret!, tenantId: pt.tenantId!, pageDelayMs: num(setting("MIRROR_PAGE_SECONDS"), 60) * 1000 }) : null;
+      console.log(ptClient ? "playtomic mirror on" : "playtomic mirror off");
+    }
+    const client = ptClient;
+    if (!client) return;
+    wait = every;
+    const r = await syncMirror(db, client, { daysAhead });
+    console.log(r.ok ? `playtomic mirror: ${r.fetched} read, ${r.changes} changed, ${r.unmapped.length} courts to link` : `playtomic mirror failed: ${r.error}`);
+    const f = r.ok && farEvery > 0 ? await syncMirrorFar(db, client, { daysAhead, everyMs: farEvery, lastRead: farRead }) : null;
+    if (f) console.log(f.ok ? `playtomic mirror, ${day(f.from)} to ${day(f.to)}: ${f.fetched} read, ${f.changes} changed` : `playtomic mirror, ${day(f.from)} to ${day(f.to)}, failed (tried again next time): ${f.error}`);
+    // Once a club day: Playtomic and Kumi compared, and any new difference told to the owners (playtomic_archive.ts).
+    const cmp = r.ok ? await comparePlaytomic(db).catch((e: Error) => { console.error("playtomic comparison:", e.message); return null; }) : null;
+    if (cmp?.ran) console.log(`playtomic comparison: ${cmp.differences} differences, ${cmp.told} new told to the owners`);
+    // Staff asked for Playtomic's players (moving in, brought_in.ts): read them all, at the same pace.
+    if (await playersWanted(db)) {
+      const p = await readPlaytomicPlayers(db, client);
+      console.log(p.ok ? `playtomic players: ${p.read} read, ${p.changed} changed` : `playtomic players failed: ${p.error}`);
+    }
+  } catch (e) { console.error("playtomic mirror:", (e as Error).message); }
+  finally { setTimeout(ptLoop, wait); }
+};
+void ptLoop();

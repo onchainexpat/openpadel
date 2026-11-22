@@ -13,7 +13,7 @@ import { answerModels, checkAnswerKeys } from "./answerer.ts";
 import { memberUrl, walletDomainOf } from "./addresses.ts";
 import { VERSION } from "./version.ts";
 import { pluginsHealth } from "./plugins.ts";
-import { setting } from "@kumi/core";
+import { namesThatDiffer, oldNamesInUse, serviceEnv, SERVICES, setting, settingName } from "@kumi/core";
 
 export type CheckState = "ok" | "warn" | "fail" | "off";
 export interface Check { id: string; state: CheckState; text: Text; doc?: string;
@@ -22,7 +22,9 @@ export interface Check { id: string; state: CheckState; text: Text; doc?: string
 type Env = Record<string, string | undefined>;
 type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
-export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fetch; now?: Date; resolveTxt?: (name: string) => Promise<string[][]> } = {}): Promise<Check[]> {
+export async function doctor(db: Db, fileEnv: Env = process.env, deps: { fetch?: Fetch; now?: Date; resolveTxt?: (name: string) => Promise<string[][]> } = {}): Promise<Check[]> {
+  // Every check reads the settings as the services do: the settings file, then what the owner set in the app (the vault).
+  const env = await serviceEnv(db, fileEnv);
   const checks: Check[] = [], now = deps.now ?? new Date(), production = env.NODE_ENV === "production";
   // Docker installs (the image sets OPENPADEL_INSTALL=docker) run backups from a service, not systemd timers.
   const docker = setting("INSTALL", env) === "docker", opsDoc = docker ? "deploy/docker/README.md" : "deploy/README.md", d = docker ? "_docker" : "";
@@ -37,6 +39,19 @@ export async function doctor(db: Db, env: Env = process.env, deps: { fetch?: Fet
   const m = await pendingMigrations(db);
   add("migrations", m.pending.length ? "warn" : "ok", m.pending.length ? "migrations.pending" : "migrations.ok", { count: m.pending.length || m.applied });
   if (m.applied === 0) { add("club", "fail", "club.missing", {}, "docs/setup/README.md"); return checks; }
+
+  // The settings' names (settings.ts): the old KUMI_ ones still work, so it's only ever a gentle warning; and one set under
+  // both names with different values says which is used.
+  const old = oldNamesInUse(fileEnv), differ = namesThatDiffer(fileEnv);
+  if (differ.length) add("setting_names", "warn", "setting_names.differ", { names: differ.map((n) => settingName(n)).join(", ") }, "docs/settings.md");
+  else if (old.length) add("setting_names", "warn", "setting_names.old", { count: old.length }, "docs/settings.md");
+  // Where each service's settings come from: the ones the owner set in the app, and any the settings file has as well
+  // (which wins there).
+  const inApp = SERVICES.flatMap((s) => s.fields.map((x) => settingName(x.setting))).filter((n) => env[n]?.trim() && !setting(n, fileEnv)?.trim());
+  const pinned = (await db.selectFrom("vault_item").select("setting").where("active", "=", true).where("setting", "is not", null).execute().catch(() => []))
+    .map((h) => h.setting!).filter((n) => setting(n, fileEnv)?.trim()).sort();
+  if (inApp.length || pinned.length) add("service_settings", "ok", pinned.length ? (inApp.length ? "service_settings.both" : "service_settings.pinned") : "service_settings.in_app",
+    { names: inApp.join(", "), pinned: pinned.join(", ") });
 
   const club = await db.selectFrom("club").select(["name", "time_zone", "terms_url", "privacy_policy_url"]).executeTakeFirst();
   if (!club) { add("club", "fail", "club.missing", {}, "docs/setup/README.md"); return checks; }

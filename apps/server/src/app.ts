@@ -20,6 +20,7 @@ import { BotCheck } from "./bot.ts";
 import { secondStepTries, twoFactorRoutes } from "./two_factor.ts";
 import { completeSignUp, emailUndoTarget, LINK_MINUTES, phoneSignInOn, signInLinkTarget, useSignInLink, sessionPerson, signOut, startEmailAdd, startEmailSignIn, startPhoneSignIn, undoEmailChange, verifyEmailAdd, verifyEmailCode, verifyPhoneCode } from "./auth.ts";
 import { bearerPerson, defaultFetchMetadata, mcpResourceOf, mcpResources, OAUTH_PAGES, oauthErrorPage, oauthRoutes, type FetchMetadata } from "./oauth.ts";
+import { serviceRoutes } from "./service_routes.ts";
 import { handleMcp, mcpServerFor } from "./mcp.ts";
 import { previewWords } from "./preview_words.ts";
 import { assistantRoutes, type ModelClient } from "./assistant.ts";
@@ -69,6 +70,8 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** The database's address for the tools that copy it whole (the owner's "Download everything"). */
   databaseUrl?: string
   /** The email service's webhook (email_events.ts): the secret its posts are signed with, and the club's sender. */
+  /** How the Connectors cards' test calls reach Resend and Stripe (a stand-in in tests). */
+  serviceFetch?: (url: string, init?: RequestInit) => Promise<Response>;
   emailEvents?: { secret: string | null; from: string | null }
   /** Over HTTPS, a session under the cookie's old name is still read and moved to the new one, for a release (on unless
    *  OPENPADEL_LEGACY_SESSION_COOKIE=0: session_cookie.ts). */
@@ -76,10 +79,12 @@ export interface AppDeps { clientIp?: (c: Context<any>) => string | null; db: Db
   /** Where a sign-in code emailed goes (main.ts): "sent" by the email service; "log", with no email service set up, only
    *  to the server's log; "practice", only to the server's test addresses (the rest are held in its log). The sign-in
    *  page then says so, rather than that it was emailed. */
-  mailReach?: "sent" | "log" | "practice"
+  /** Where email goes now (main.ts reads it from the mailer, which follows the settings as they change). */
+  mailReach?: "sent" | "log" | "practice" | (() => "sent" | "log" | "practice")
   /** Ask openPadel's model (assistant.ts): on with OPENPADEL_ANTHROPIC_API_KEY, off (and the apps say how to turn it on)
    *  without one. Tests give a fake. */
-  assistant?: ModelClient | null
+  /** Ask openPadel's model, or what gives it as the settings are now. */
+  assistant?: ModelClient | null | (() => ModelClient | null)
   /** Where the plugin catalog's index is (OPENPADEL_PLUGIN_CATALOG_URL): an address or a file; the bundled sample without one. */
   pluginCatalogUrl?: string | null }
 /** gate: this session still owes its second step ("verify"), or there's none set up yet ("setup"). */
@@ -108,6 +113,7 @@ export function makeApp(deps: AppDeps) {
   const now = deps.now ?? (() => new Date());
   const cookieMode: CookieMode = { secure: deps.secureCookies ?? true, legacy: deps.legacySessionCookie ?? true };
   const app = new Hono<Env>();
+  const reach = () => typeof deps.mailReach === "function" ? deps.mailReach() : deps.mailReach;
 
   // Security headers on everything the API answers. The only HTML it serves is the agent sign-in and
   // consent pages, with their own inline styles and no scripts. The apps' headers are set by Caddy.
@@ -281,13 +287,13 @@ export function makeApp(deps: AppDeps) {
     const v = brandTag(club.name, club.brand_colour, logo_id && `${logo_id}:${logo_for ?? ""}`);
     const logo = logo_id ? `/manifest/icon-192.png?v=${v}` : null, mark = `/manifest/mark.png?v=${v}`;
     return c.json({ ...shown, logo, mark, coming_from: comingFrom(club.coming_from), read_only: Boolean(read_only_since), moved: Boolean(moved_at), moved_to: moved_at ? moved_to : null, memberships: Boolean(plan), lessons: Boolean(coach), competitions: Boolean(competing), passes: Boolean(passes), promos, phone_sign_in: phoneSignInOn(deps.texts?.texter ?? null), drafts: translatorOn(),
-      member_url: deps.memberUrl ?? memberUrl(publicUrl, {}), hosted: isHosted(), mail: deps.mailReach ?? "sent" });
+      member_url: deps.memberUrl ?? memberUrl(publicUrl, {}), hosted: isHosted(), mail: reach() ?? "sent" });
   });
 
   // ---- The MCP door: OAuth, then tools generated from the registry ----
   const publicUrl = (deps.publicUrl ?? "http://127.0.0.1:8790").replace(/\/$/, "");
   app.route("/", oauthRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, fetchMetadata: deps.fetchMetadata ?? defaultFetchMetadata, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"),
-    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep, ip: ipOf, mailReach: deps.mailReach }));
+    texter: deps.texts?.texter ?? null, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}), secondStepTries: secondStep, ip: ipOf, get mailReach() { return reach(); } }));
   app.route("/", passkeyRoutes({ db, mailer, publicUrl, secureCookies: deps.secureCookies ?? true, now, lang: (c) => c.get("lang"), me: (c) => c.get("me") }));
   app.route("/", twoFactorRoutes({ db, mailer, now, lang: (c) => c.get("lang"), me: (c) => c.get("me"), tries: secondStep }));
   // Getting started's card payments, email and practice mode, as doctor's checks say (getting_started.ts).
@@ -316,13 +322,15 @@ export function makeApp(deps: AppDeps) {
     if (!staff && (await botGuard(c)) !== "ok") throw new KumiError("error.bot_check", {}, 400);
   };
   app.route("/", paymentRoutes(db, (c) => c.get("me"), actor, publicUrl, deps.stripe, checkoutGuard));
-  app.route("/", emailEventRoutes(db, { secret: deps.emailEvents?.secret ?? null, from: deps.emailEvents?.from ?? null, now }));
+  app.route("/", emailEventRoutes(db, { get secret() { return deps.emailEvents?.secret ?? null; }, get from() { return deps.emailEvents?.from ?? null; }, now }));
   // Texts: a member's number and their yes, and what Twilio posts back (texts.ts).
-  app.route("/", textRoutes({ db, texter: deps.texts?.texter ?? null, authToken: deps.texts?.authToken ?? null, publicUrl, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}),
+  app.route("/", textRoutes({ db, texter: deps.texts?.texter ?? null, get authToken() { return deps.texts?.authToken ?? null; }, publicUrl, memberUrl: deps.memberUrl ?? memberUrl(publicUrl, {}),
     me: (c) => c.get("me"), lang: (c) => c.get("lang"), now, botGuard, mailer, undoUrl: (t) => `${deps.memberUrl ?? memberUrl(publicUrl, {})}/auth/email-undo/${t}` }));
   // The MCP door, at either address. What an assistant reads is what the person reads in the app: the same
   // member routes, run in-process for the person behind the token.
   const mcpAt = mcpResources(publicUrl, deps.memberUrl ?? memberUrl(publicUrl, {}));
+  // A service's settings, from its card or the owner's command line (service_routes.ts): the owner only, never a value back.
+  app.route("/", serviceRoutes({ db, now, publicUrl, production: deps.production ?? false, me: (c) => c.get("me"), lang: (c) => c.get("lang"), resources: mcpAt, ...(deps.serviceFetch ? { fetch: deps.serviceFetch } : {}) }));
   /** What the door reads for a person: the members' app's reads as them, and for staff the staff screens' reads with
    *  their own checks, never through support access (reads.ts). */
   const doorReads = (who: { id: string; locale: string }) => {
@@ -344,7 +352,7 @@ export function makeApp(deps: AppDeps) {
     return handleMcp(c.req.raw, await mcpServerFor(db, who, now, read, readStaff, limited));
   });
   // Ask openPadel, the hosted assistant: the same door, opened in-process for the person signed in (assistant.ts).
-  app.route("/", assistantRoutes({ db, now, model: deps.assistant ?? null, me: (c) => c.get("me"), lang: (c) => c.get("lang"), reads: doorReads }));
+  app.route("/", assistantRoutes({ db, now, get model() { return typeof deps.assistant === "function" ? deps.assistant() : deps.assistant ?? null; }, me: (c) => c.get("me"), lang: (c) => c.get("lang"), reads: doorReads }));
 
   // ---- Sign in by an emailed code ----
   app.post("/auth/email/start", async (c) => {
@@ -442,7 +450,7 @@ export function makeApp(deps: AppDeps) {
   const linkPage = (l: Lang, club: string, body: string) => `<!doctype html><html lang="${l}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title>${esc(t(l, "signinlink.title", { club }))}</title><style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.5;color:#1d2321;background:#fff}button{font:inherit;padding:.6rem 1.2rem;border-radius:.5rem;border:1px solid #1d2321;background:#1d2321;color:#fff;cursor:pointer}code{background:#eef1f0;padding:0 .25rem;border-radius:.25rem}</style></head>
 <body><h1>${esc(t(l, "signinlink.title", { club }))}</h1>${body}</body></html>`;
-  const linksOn = () => deps.mailReach === "log";
+  const linksOn = () => reach() === "log";
   const clubName = async () => (await db.selectFrom("club").select("name").executeTakeFirst())?.name ?? "";
   const linkGone = async (c: Context<Env>) => c.html(linkPage(c.get("lang"), await clubName(), `<p>${esc(t(c.get("lang"), linksOn() ? "signinlink.bad" : "signinlink.email_on", { count: LINK_MINUTES }))}</p>`), 404);
   app.get("/auth/link/:token", async (c) => {

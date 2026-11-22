@@ -6,7 +6,7 @@
 // reads "added, ends in 4F2A" or missing, and the settings file's own keys only whether they're there.
 import { Hono, type Context } from "hono";
 import { both, type Key, type Lang, type Text } from "@kumi/i18n";
-import { cardsFor, clubAgents, KumiError, setting, type CardSlot, type Db } from "@kumi/core";
+import { cardsFor, clubAgents, KumiError, serviceOf, serviceStatus, setting, settingName, type CardSlot, type Db } from "@kumi/core";
 import { doctor, type Check } from "./doctor.ts";
 import { pluginsWithHealth } from "./plugins.ts";
 import { gettingStartedView } from "./getting_started.ts";
@@ -14,23 +14,26 @@ import { gettingStartedView } from "./getting_started.ts";
 export type ConnectorStatus = "on" | "waiting" | "attention" | "off";
 type Env = Record<string, string | undefined>;
 
-/** The built-in services: the doctor checks that judge each (the first is its own), the settings it needs on the
- *  server, where its guide is, and where the staff app looks after it. */
+/** The built-in services: the doctor checks that judge each (the first is its own), where its guide is, where the staff
+ *  app looks after it, and the provider's page where its keys are made (the guide says which choices to make there).
+ *  Its settings are core's (service_settings.ts): set in the app, on its card, or in the settings file. */
 export const BUILT_INS = [
-  { key: "stripe", name: "Stripe", checks: ["payments", "wallets", "currency"], settings: ["OPENPADEL_STRIPE_SECRET_KEY", "OPENPADEL_STRIPE_PUBLISHABLE_KEY", "OPENPADEL_STRIPE_WEBHOOK_SECRET"],
-    doc: "docs/setup/accounts/stripe.md", page: "/payments", sees: "processor.stripe.gets" },
-  { key: "resend", name: "Resend", checks: ["email", "email_domain", "email_reports"], settings: ["OPENPADEL_RESEND_API_KEY", "OPENPADEL_MAIL_FROM", "OPENPADEL_RESEND_WEBHOOK_SECRET"],
-    doc: "docs/setup/accounts/resend.md", page: null, sees: "processor.resend.gets" },
-  { key: "twilio", name: "Twilio", checks: ["texts"], settings: ["OPENPADEL_TWILIO_ACCOUNT_SID", "OPENPADEL_TWILIO_AUTH_TOKEN", "OPENPADEL_TWILIO_MESSAGING_SERVICE_SID"],
-    doc: "docs/setup/accounts/twilio.md", page: "/settings#texting", sees: "processor.twilio.gets" },
-  { key: "playtomic", name: "Playtomic", checks: ["playtomic"], settings: ["OPENPADEL_PLAYTOMIC_CLIENT_ID", "OPENPADEL_PLAYTOMIC_SECRET", "OPENPADEL_PLAYTOMIC_TENANT_ID"],
-    doc: "docs/setup/accounts/playtomic.md", page: "/playtomic", sees: null },
-  { key: "offsite", name: "Offsite backups", checks: ["offsite", "backups", "restore_test"], settings: ["OPENPADEL_OFFSITE_BUCKET", "OPENPADEL_OFFSITE_ACCESS_KEY_ID", "OPENPADEL_OFFSITE_SECRET_ACCESS_KEY", "OPENPADEL_BACKUP_KEY"],
-    doc: "docs/setup/accounts/offsite-backups.md", page: null, sees: "processor.offsite.gets" },
+  { key: "stripe", name: "Stripe", checks: ["payments", "wallets", "currency"], doc: "docs/setup/accounts/stripe.md", page: "/payments", sees: "processor.stripe.gets",
+    keys_at: "https://dashboard.stripe.com/test/apikeys", test: true },
+  { key: "resend", name: "Resend", checks: ["email", "email_domain", "email_reports"], doc: "docs/setup/accounts/resend.md", page: null, sees: "processor.resend.gets",
+    keys_at: "https://resend.com/api-keys", test: true },
+  { key: "twilio", name: "Twilio", checks: ["texts"], doc: "docs/setup/accounts/twilio.md", page: "/settings#texting", sees: "processor.twilio.gets",
+    keys_at: "https://console.twilio.com/", test: false },
+  { key: "playtomic", name: "Playtomic", checks: ["playtomic"], doc: "docs/setup/accounts/playtomic.md", page: "/playtomic", sees: null,
+    keys_at: "https://manager.playtomic.io/", test: false },
+  { key: "offsite", name: "Offsite backups", checks: ["offsite", "backups", "restore_test"], doc: "docs/setup/accounts/offsite-backups.md", page: null, sees: "processor.offsite.gets",
+    keys_at: "https://dash.cloudflare.com/?to=/:account/r2/api-tokens", test: false },
+  { key: "ai", name: "AI", checks: ["answers", "assistant"], doc: "docs/setup/accounts/ask-the-club.md", page: null, sees: "processor.anthropic.gets",
+    keys_at: "https://platform.claude.com/settings/keys", test: false },
 ] as const;
-/** Settings whose last four aren't shown even so: the keys that open the club's backups and sealed secrets, which the
- *  owner keeps in a password manager and nobody else reads (AGENTS.md). */
-const NEVER_LAST4 = new Set(["OPENPADEL_BACKUP_KEY", "OPENPADEL_SECRET_KEY", "OPENPADEL_MAIL_FROM"]);
+/** Settings only the settings file holds, said to be there and nothing more: the key that opens the club's backups,
+ *  which the owner keeps in a password manager and nobody else reads (AGENTS.md). */
+const FILE_ONLY: Record<string, string[]> = { offsite: ["BACKUP_KEY"] };
 
 /** One doctor check as a connector's status: a failure needs attention; off is off; a warning that it's practice, still
  *  waiting (a registration, a first sync) or never run yet is waiting; any other warning needs attention. */
@@ -55,7 +58,7 @@ let cache: { at: number; checks: Check[] } | null = null;
  *  started reads them too, getting_started.ts). */
 export async function checksNow(db: Db, env: Env, fresh: boolean): Promise<Check[]> {
   if (!fresh && cache && Date.now() - cache.at < 60_000) return cache.checks;
-  const checks = await doctor(db, env);
+  const checks = await doctor(db, env);   // doctor reads the app's settings too (serviceEnv)
   cache = { at: Date.now(), checks };
   return checks;
 }
@@ -65,18 +68,20 @@ export function forgetConnectorChecks(): void { cache = null; }
 export async function connectors(db: Db, l: Lang, o: { production: boolean; env?: Env; fresh?: boolean; now?: Date }) {
   const env = o.env ?? process.env, checks = await checksNow(db, env, Boolean(o.fresh));
   const said = (t: Text) => t[l];
-  const builtIns = BUILT_INS.map((b) => {
+  const builtIns = await Promise.all(BUILT_INS.map(async (b) => {
     const mine = b.checks.map((id) => checks.find((c) => c.id === id)).filter((c): c is Check => Boolean(c));
     const status = statusOfAll(mine);
-    return { key: b.key, name: b.key === "offsite" ? both("connector.offsite.name")[l] : b.name, kind: both(`connector.${b.key}.kind` as Key)[l], does: both(`connector.${b.key}.does` as Key)[l],
+    return { key: b.key, name: b.key === "offsite" || b.key === "ai" ? both(`connector.${b.key}.name` as Key)[l] : b.name, kind: both(`connector.${b.key}.kind` as Key)[l], does: both(`connector.${b.key}.does` as Key)[l],
       sees: b.sees ? both(b.sees as Key)[l] : null, status, health: mine[0] ? said(mine[0].text) : both("connector.not_checked")[l],
       checks: mine.map((c) => ({ id: c.id, state: c.state, status: statusOf(c), text: said(c.text), ...(c.doc ? { doc: c.doc } : {}) })),
-      settings: b.settings.map((name) => {
-        const v = setting(name, env)?.trim();
-        return { name, added: Boolean(v), last4: v && !NEVER_LAST4.has(name) && v.length >= 12 ? v.slice(-4) : null };
-      }),
+      // Each setting: set or not, and where from (the settings file, "server", or the app); a secret by its last four.
+      settings: [...await serviceStatus(db, b.key, env), ...(FILE_ONLY[b.key] ?? []).map((n) => ({ field: n.toLowerCase(), name: settingName(n), secret: true, needed: true,
+        set: Boolean(setting(n, env)?.trim()), source: setting(n, env)?.trim() ? "server" as const : null, last4: null, file_only: true }))],
+      // The form on the card: its fields, where the keys are made, and whether it has a test call.
+      form: { fields: serviceOf(b.key).fields.map((x) => ({ field: x.field, name: settingName(x.setting), secret: x.secret, needed: x.needed,
+        label: both(`service.field.${b.key}.${x.field}` as Key)[l] })), keys_at: b.keys_at, how: both(`connector.${b.key}.how` as Key)[l], test: b.test },
       doc: b.doc, page: b.page };
-  });
+  }));
   const plugins = (await pluginsWithHealth(db, l, o.production)).filter((p) => p.status !== "removed").map((p) => {
     const missing = p.keys.filter((k) => k.needed);
     const status: ConnectorStatus = p.status === "paused" ? "off" : p.status === "waiting" ? "waiting" : p.health?.state === "down" || missing.length ? "attention" : "on";
@@ -93,6 +98,8 @@ export async function connectors(db: Db, l: Lang, o: { production: boolean; env?
     agents: agents.filter((a) => !a.revoked_at).map((a) => ({ id: a.id, name: a.name, role: a.role_name, can: a.can, last_used_at: a.last_used_at, token_last4: a.token_last4,
       weekly_cap_cents: a.weekly_cap_cents, spent_cents: a.spent_cents, webhooks: a.webhooks })),
     assistants: assistants.map((a) => ({ id: a.id, name: a.name, person: a.person, roles: a.roles, last_used_at: a.last_used_at })),
+    // How a service's keys go in: never through an assistant or a chat (service_routes.ts).
+    keys_how: both("connector.keys_how")[l],
     // What to give the club's agent to connect something, and what to ask Ask openPadel.
     ask: { commands: pluginCommands(l), prompt: both("connector.ask_prompt")[l] },
     // A new club's steps, as Today shows them (getting_started.ts), put away or not.

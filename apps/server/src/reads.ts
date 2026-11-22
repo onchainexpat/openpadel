@@ -16,7 +16,7 @@ import { clubFileStem } from "./file_names.ts";
 import { todayRoutes } from "./today.ts";
 import { pluginReadRoutes } from "./plugins.ts";
 import { staffConnectorRoutes } from "./connectors.ts";
-import { setting } from "@kumi/core";
+import { serviceEnv, setting } from "@kumi/core";
 
 /** An Excel file of about 2 MB, as base64 (the server takes 3 MB a request). */
 const XLSX_MAX_BASE64 = 2_800_000;
@@ -1206,7 +1206,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const up = upload ? { id: upload.id, sha256: upload.sha256, file_name: upload.file_name, at: upload.at, rows: upload.rows, wallet_columns: upload.wallet_columns,
       uploaded_by: upload.uploaded_by, erased: upload.erased,
       problems: upload.problems.slice(0, 50).map((p) => ({ line: p.line, text: p.text[l] })), benefits: benefitCounts(upload.players) } : null;
-    return c.json({ ...st, upload: up, has_keys: Boolean(setting("PLAYTOMIC_CLIENT_ID") && setting("PLAYTOMIC_SECRET") && setting("PLAYTOMIC_TENANT_ID")),
+    return c.json({ ...st, upload: up, has_keys: await playtomicKeys(db),
       benefits: benefitCounts(kept.map((k) => ({ benefits: k.benefits as { name: string; until: string | null }[] }))),
       plans: plans.map((p) => ({ id: p.id, name: inLang(p.name, p.translations, "name", l), join_in_app: p.join_in_app })) });
   });
@@ -1244,7 +1244,7 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
     const now = new Date(), l = lang(c);
     const st = await moveState(db), mi = await moveInStatus(db);
     const playtomic = (st.source ?? "spreadsheet") === "playtomic";
-    const hasKeys = Boolean(setting("PLAYTOMIC_CLIENT_ID") && setting("PLAYTOMIC_SECRET") && setting("PLAYTOMIC_TENANT_ID"));
+    const hasKeys = await playtomicKeys(db);
     const practice = setting("PRACTICE") === "1";
     const status = await db.selectFrom("connector_status").select(["last_sync_at", "last_ok_at", "last_error", "unmapped"]).where("system", "=", PLAYTOMIC).executeTakeFirst();
     const refs = await db.selectFrom("external_ref").select("external_id").where("system", "=", PLAYTOMIC).where("entity", "=", "court").execute();
@@ -1391,4 +1391,10 @@ export function readRoutes(db: Db, me: (c: Context<any>) => Me, lang: (c: Contex
   app.route("/", staffConnectorRoutes(db, (c) => me(c), lang, { production: Boolean(opts.production) }));
   app.route("/", pluginReadRoutes(db, (c) => me(c), lang, { production: Boolean(opts.production) }));
   return app;
+}
+
+/** Whether Playtomic's three keys are there: in the settings file or set in the app (service_settings.ts). */
+async function playtomicKeys(db: Db): Promise<boolean> {
+  const e = await serviceEnv(db);
+  return Boolean(setting("PLAYTOMIC_CLIENT_ID", e) && setting("PLAYTOMIC_SECRET", e) && setting("PLAYTOMIC_TENANT_ID", e));
 }

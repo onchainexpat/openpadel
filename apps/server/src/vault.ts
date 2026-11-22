@@ -9,7 +9,7 @@ type Me = { id: string; method?: string } | null;
 
 /** The owner, signed in with a second step: its changes are sensitive (strongAuth), and so is reading what it keeps,
  *  whether or not the club asks a second step at sign-in. */
-async function ownerOnly(db: Db, me: Me) {
+export async function ownerOnly(db: Db, me: Me) {
   if (!me) throw new KumiError("error.signed_out", {}, 401);
   const owner = await db.selectFrom("person_role").innerJoin("role", "role.id", "person_role.role_id").select("role.key")
     .where("person_role.person_id", "=", me.id).where("person_role.active", "=", true).where("role.key", "=", "owner").executeTakeFirst();

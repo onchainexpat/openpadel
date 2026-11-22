@@ -89,3 +89,47 @@ export async function checkSendingDomain(apiKey: string, domain: string, o: { fe
   const txt = await resolve(`resend._domainkey.${domain}`).catch(() => [] as string[][]);
   return { state: "dkim", found: txt.some((parts) => parts.join("").includes("p=")) };
 }
+
+/** What a LiveMailer sends with now: Resend's key and the club's address, and whether it's still practice (then only
+ *  the test addresses get email). Null: no email service set up, so email stays in the log. */
+export type MailSettings = { apiKey: string; from: string; replyTo?: string; testTo: string[]; practice: boolean } | null;
+/** Email with the settings as they are now (the settings file, then what the owner set in the app): looked at again
+ *  before each email, at most every 30 seconds (and at once after refresh()), so a key set in the app is used for the
+ *  next email without a restart. `wrap` is what the real sender goes through (the monthly meter). */
+export class LiveMailer implements Mailer {
+  private readonly read: () => Promise<MailSettings>;
+  private readonly log: Mailer;
+  private readonly wrap: (m: Mailer) => Mailer;
+  private readonly fetchFn?: Fetch;
+  private sig = "";
+  private inner: Mailer;
+  private at = 0;
+  private kind: "sent" | "log" | "practice" = "log";
+  constructor(read: () => Promise<MailSettings>, o: { log?: Mailer; wrap?: (m: Mailer) => Mailer; fetch?: Fetch } = {}) {
+    this.read = read; this.log = o.log ?? new MemoryMailer(true); this.wrap = o.wrap ?? ((m) => m); if (o.fetch) this.fetchFn = o.fetch; this.inner = this.log;
+  }
+  /** Where email goes now: through Resend to everyone, through Resend to the test addresses only, or to the log. */
+  reach(): "sent" | "log" | "practice" { return this.kind; }
+  /** Read the settings again now. */
+  async refresh(): Promise<void> {
+    const s = await this.read();
+    this.at = Date.now();
+    const sig = s ? JSON.stringify([s.apiKey, s.from, s.replyTo ?? "", s.testTo, s.practice]) : "";
+    if (sig === this.sig) return;
+    this.sig = sig;
+    if (!s) { this.inner = this.log; this.kind = "log"; return; }
+    try {
+      const resend = this.wrap(new ResendMailer({ apiKey: s.apiKey, from: s.from, ...(s.replyTo ? { replyTo: s.replyTo } : {}), ...(this.fetchFn ? { fetch: this.fetchFn } : {}) }));
+      this.inner = s.practice ? new PracticeMailer(resend, s.testTo) : resend;
+      this.kind = s.practice ? "practice" : "sent";
+    } catch (e) {
+      // A key or address that can't be used (the app checks both, so only a settings file's): email stays in the log.
+      console.error(`email: ${(e as Error).message}; email stays in the log until it's fixed`);
+      this.inner = this.log; this.kind = "log";
+    }
+  }
+  async send(mail: Mail) {
+    if (Date.now() - this.at > 30_000) await this.refresh();
+    return this.inner.send(mail);
+  }
+}
