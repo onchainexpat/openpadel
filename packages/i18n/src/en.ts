@@ -5944,7 +5944,7 @@ export const en = {
   "assistant.usage_paused": "Ask {assistant} is paused until the 1st: the club has used what it allows for AI this month. The owner can raise the monthly cap on the Usage page.",
   "assistant.refused": "I can't help with that one.",
   "assistant.nothing_to_say": "I don't have an answer for that. Try asking another way.",
-  "doctor.assistant.off": "Ask {assistant}: off. Optional: with OPENPADEL_ANTHROPIC_API_KEY in /etc/kumi/kumi.env, staff and members get the hosted assistant (Claude).",
+  "doctor.assistant.off": "Ask {assistant}: off. Optional: with an Anthropic API key (Settings, Connectors, AI models in the staff app, or OPENPADEL_ANTHROPIC_API_KEY in /etc/kumi/kumi.env), staff and members get the hosted assistant (Claude).",
   "doctor.assistant.ok": { one: "Ask {assistant}: on, with Claude Sonnet for staff and Claude Haiku for members. {count} call this month.", other: "Ask {assistant}: on, with Claude Sonnet for staff and Claude Haiku for members. {count} calls this month." },
   "doctor.assistant.refused": "Ask {assistant}: Anthropic refused the key ({error}).",
   "ui.usage_ai_assistant": "AI: Ask {assistant}",

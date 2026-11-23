@@ -7,6 +7,14 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
+## Unreleased
+
+### Fixed
+- `openpadel doctor`'s line for the assistant when it's off says its key can be pasted in the staff app (Settings,
+  Connectors, AI models), not only put in the settings file.
+- The staff menu's "Ask ..." keeps its keyboard keys (Ctrl K) in one piece: beside the name, or under it when a long
+  name ("Pregúntale a openPadel") leaves no room.
+
 ## 0.9.1 (2026-11-22)
 
 ### When updating

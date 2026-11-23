@@ -111,6 +111,9 @@ label.inline-number input { flex: none; width: 5.5em; margin: 0; }
 .ask-panel header { margin: 0; }
 .ask-chat .thread { max-height: 50vh; overflow-y: auto; }
 kbd { font: 12px/1 ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; }
+/* The staff menu's "Ask ..." and its keys, each kept whole: the keys sit beside the name, or under it when a long name
+   leaves no room, never split in two. */
+.ask-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; } .ask-line > button, .ask-line > kbd { white-space: nowrap; }
 /* The bot check's hidden field: off screen, never seen or tabbed to (bot.ts). */
 .trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 /* Two-step sign-in: the authenticator's QR code and the recovery codes. */

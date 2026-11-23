@@ -308,7 +308,7 @@ function Frame({ a, signOut, children }: { a: Access; signOut: () => void; child
         aria-label={shown ? t("ui.nav_main") : undefined}>
         <div class="rail-head"><strong>{club.value?.logo && <img class="club-logo" src={club.value.logo} alt="" width={28} height={28} />}{club.value?.name}</strong>
           {shown && <button type="button" class="small" onClick={close}>{t("ui.close")}</button>}</div>
-        <p><button type="button" class="link" onClick={() => { close(); ask.open(); }} aria-haspopup="dialog">{t("ui.assistant_title")}</button> <kbd aria-hidden="true">{askKeys()}</kbd></p>
+        <p class="ask-line"><button type="button" class="link" onClick={() => { close(); ask.open(); }} aria-haspopup="dialog">{t("ui.assistant_title")}</button> <kbd aria-hidden="true">{askKeys()}</kbd></p>
         <StaffNav a={a} n={n} signOut={signOut} />
       </div>
       {ask.panel}

@@ -5944,7 +5944,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "assistant.usage_paused": "El asistente {assistant} está en pausa hasta el día 1: el club ya usó lo que permite para IA este mes. El dueño puede subir el tope mensual en la página Uso.",
   "assistant.refused": "No puedo ayudar con eso.",
   "assistant.nothing_to_say": "No tengo una respuesta para eso. Prueba a preguntarlo de otra forma.",
-  "doctor.assistant.off": "Asistente {assistant}: apagado. Opcional: con OPENPADEL_ANTHROPIC_API_KEY en /etc/kumi/kumi.env, el personal y los miembros tienen el asistente alojado (Claude).",
+  "doctor.assistant.off": "Asistente {assistant}: apagado. Opcional: con una clave de API de Anthropic (Configuración, Conectores, Modelos de IA en la app del personal, u OPENPADEL_ANTHROPIC_API_KEY en /etc/kumi/kumi.env), el personal y los miembros tienen el asistente alojado (Claude).",
   "doctor.assistant.ok": { one: "Asistente {assistant}: activado, con Claude Sonnet para el personal y Claude Haiku para los miembros. {count} llamada este mes.", other: "Asistente {assistant}: activado, con Claude Sonnet para el personal y Claude Haiku para los miembros. {count} llamadas este mes." },
   "doctor.assistant.refused": "Asistente {assistant}: Anthropic rechazó la clave ({error}).",
   "ui.usage_ai_assistant": "IA: Pregúntale a {assistant}",
