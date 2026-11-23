@@ -7,7 +7,7 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.9.1 (2026-11-22)
 
 ### When updating
 Nothing to do: the assistant keeps its name ("Ask openPadel", or "Ask Kumi" on Kumi's hosted service) until the club
