@@ -3256,7 +3256,7 @@ export const es: { [K in keyof typeof en]: Message } = {
   "ui.common_questions": "Preguntas frecuentes",
   "ui.search_questions": "Buscar en las preguntas frecuentes",
   "ui.no_facts_match": "Ninguna pregunta frecuente coincide con esas palabras.",
-  "ui.no_facts_yet": "El club aún no ha añadido preguntas frecuentes.",
+  "ui.no_facts_yet": "El club aún no ha agregado preguntas frecuentes.",
   "ui.ask_heading": "¿No lo encontraste? Pregunta al club",
   "ui.ask_these_first": "Esto podría responderla:",
   "ui.your_question": "Tu pregunta",
