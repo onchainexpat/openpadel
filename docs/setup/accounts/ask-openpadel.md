@@ -1,5 +1,9 @@
 # Ask openPadel: the hosted assistant
 
+Its name is the club's to choose: by default it's "Ask openPadel" (on Kumi's hosted service, "Ask Kumi"), and a club
+that sets its own name (Settings, "The assistant's name", or `assistant_name:` under `club:` in club.yaml) has staff
+and members read that instead, in both apps, its previews, errors, the Usage page and `openpadel doctor`.
+
 **What it's for:** for a club without an agent of its own. Staff press Ctrl+K (⌘K on a Mac) on any staff page and ask
 ("who's playing on Court 2 tonight?", "block Court 3 Saturday morning for repairs"); members get a club assistant on
 their app's Ask tab ("Thursday after 6, doubles, my level"). It reads what the person could read in the app, and
@@ -11,8 +15,17 @@ agent checks it.
 Claude Sonnet 5.5, members' Claude Haiku 5.5. A staff question that reads two or three things costs about 1 to 6
 cents (the first of the day the most, as the tool list is cached after it); a member's about a tenth of a cent. List
 prices, November 2026: Sonnet 5.5 $2 per million input tokens and $10 per million output; Haiku 5.5 $0.10 and
-$0.50. Every call counts on the club's monthly meter (Usage, "AI: Ask openPadel"), under the owner's cap.
+$0.50. Every call counts on the club's monthly meter (Usage, "AI: Ask openPadel", with the club's name for it), under the owner's cap.
 **`openpadel doctor` checks:** `assistant`.
+
+## Its name
+
+A name, not a sentence: 1 to 24 characters, the same in English and Spanish, without "Ask" (the app adds "Ask" and
+"Pregúntale a" itself). Kestrel Padel naming it Kestrel gives "Ask Kestrel" on the staff app's button and "Kestrel,
+the club's assistant" on the members' Ask tab; a sentence about it reads "Kestrel couldn't answer just now". Set in
+Settings ("Club details", previewed and confirmed like any setting, and undone from Changes) or in club.yaml, where,
+like `coming_from`, each `openpadel setup apply` sets the file's value again. Empty, it goes back to the default. Members
+never read openPadel's name: until the club names it, their app says "Club assistant".
 
 ## Turning it on
 

@@ -315,6 +315,11 @@ openpadel court block --courts "Court 3" --starts-at "2026-11-20 07:00" --ends-a
 openpadel level set --person "Maria Lopez" --level 4 --reason "Played 4.0 at her last club"
 ```
 
+**Give the club's assistant its own name:** a club setting, not a command. The owner sets it in the staff app's
+Settings ("The assistant's name"), or the club's agent adds `assistant_name: Kestrel` under `club:` in club.yaml and
+runs `openpadel setup plan`, then `openpadel setup apply` on the owner's yes. From then on the staff app's button
+reads "Ask Kestrel", and so do the previews and `openpadel doctor`'s `assistant` line.
+
 **And what it won't do:**
 
 ```
