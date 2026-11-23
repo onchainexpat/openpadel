@@ -179,6 +179,11 @@ booking on the Schedule, stay the same for every club. The club's logo (Settings
 club.yaml) shows before its name in both apps' headers, and on the icons and start screens
 ([apps.md](apps.md#the-clubs-logo)).
 
+The club's AI assistant has the name the club gives it (Settings, "The assistant's name", or `assistant_name: Kestrel`
+under `club:` in club.yaml, set again by each apply like `coming_from`): the staff app's button then reads "Ask Kestrel",
+and so does every preview, error and `openpadel doctor` line that names it. Left out, it's "Ask openPadel" ("Ask Kumi"
+on Kumi's hosted service). [accounts/ask-openpadel.md](accounts/ask-openpadel.md#its-name) has the rules for the name.
+
 ### Step 5b: members
 
 Members can join by themselves: they enter their email in the members' app, get a code, and give
@@ -949,6 +954,37 @@ Only when the owner says so:
 
 Selling a founding offer before opening (step 5d)? Go live when the sales start, since members' cards
 and emails must be real; keep "Members book courts in the app" off until the doors open.
+
+## Changing openPadel for your club
+
+Every club runs the same openPadel, so each update reaches it with nothing to merge. When the club needs something
+openPadel doesn't do, reach for these in this order; a club's agent asked to change openPadel's code for one club
+starts here too.
+
+1. **A setting.** Most "we need X" is one: the club's name, colour and logo, the assistant's name, the words staff
+   know ("Staff are coming from"), booking rules, prices, refunds, messages. Fits whenever the difference is a value
+   rather than new behaviour. Example: Kestrel Padel's staff know the AI as "Kestrel", so the owner sets the
+   assistant's name to Kestrel in Settings. Nothing to merge, ever.
+2. **A plugin** ([docs/plugins](../plugins/README.md)). A feature only this club needs, written by the club's agent
+   as its own small program that talks to openPadel through the agents' door (`/mcp` and the command line) and hears
+   the club's events by webhook. Fits a connection to the club's own hardware or services, or a report nobody else
+   wants. Example: turning a court's lights on in the club's Home Assistant before each booking
+   ([plugins/court-lights](../../plugins/court-lights/README.md)). It keeps working across updates with nothing to
+   merge.
+3. **Upstream.** Something any club would want, or a bug: an issue on openPadel's repository (the "From a club using
+   openPadel" template; the club's agent can file it), or a pull request once the [CLA](../../CLA.md) is signed
+   ([CONTRIBUTING.md](../../CONTRIBUTING.md)). Fits a change to how openPadel itself works. Example: a new refund rule
+   for rain-outs. The club gets it in the next release, as does every club.
+4. **Last resort, a fork.** The club's own branch on top of a release tag (`git switch -c kestrel v0.9.0`, its changes
+   committed there). At each release the club's agent rebases the branch onto the new tag
+   (`git rebase --onto v0.9.1 v0.9.0 kestrel`), runs the full test suite, and ships with `deploy/ship.sh` only when it
+   passes. `ship.sh` ships the checkout's committed HEAD, so whatever is checked out is what runs. This costs something at every
+   update: conflicts to resolve whenever openPadel changes the same code, and the club owns its changes (nobody
+   upstream tests them, and a security fix waits for the rebase). Fits only what can't be a setting, a plugin or
+   upstream, and only while it can't.
+
+Never edit openPadel's files on the server itself: the next update replaces them, and the change is lost without a
+word.
 
 ## Commands, and where they run
 

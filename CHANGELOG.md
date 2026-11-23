@@ -9,6 +9,25 @@ openPadel was called Kumi until 7 November 2026; the releases from before then k
 
 ## Unreleased
 
+### When updating
+Nothing to do: the assistant keeps its name ("Ask openPadel", or "Ask Kumi" on Kumi's hosted service) until the club
+sets one.
+
+### Added
+- **The assistant's name is the club's.** Settings, Club details, "The assistant's name" (or `assistant_name:` under
+  `club:` in club.yaml): a plain name of up to 24 characters, the same in English and Spanish, previewed and undoable
+  like any club setting. The staff app's button and panel ("Ask Kestrel  Ctrl K"), the members' Ask tab ("Kestrel, the
+  club's assistant"), previews, errors, the Usage page, Changes and `openpadel doctor` all say it. Members still read
+  "Club assistant" until the club names it.
+- **Changing openPadel for your club** (docs/setup/README.md): a setting first, then a plugin, then an issue or pull
+  request upstream, and a fork only as the last resort, rebased onto each release and shipped only once the full test
+  suite passes. AGENTS.md's setup rules say so too.
+
+### Changed
+- Every sentence that named "Ask openPadel" names the assistant instead, and reads as a sentence with a name in it:
+  "Kestrel couldn't answer just now", "Delete your conversation with the Kestrel assistant"; in Spanish, "Pregúntale a
+  Kestrel" and "el asistente Kestrel".
+
 ### Fixed
 - A few words still said "Kumi" on every install: restoring an export ("this isn't an export from openPadel", "a
   newer openPadel"), the database check during a restore ("not openPadel's: ..."), the Twilio Messaging Service

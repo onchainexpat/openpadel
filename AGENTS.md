@@ -49,7 +49,11 @@ coding agents such as Claude Code and Codex. There are two jobs, with their own 
 8. **Updates go through `deploy/ship.sh`** (or `deploy/docker/update.sh`), which snapshot the database and
    put everything back by themselves if the new release doesn't come up. `sudo openpadel rollback --yes` loses
    what happened since the update: only with the owner's say-so, in their own words.
-9. **The phone apps install from the club's own address** ([docs/setup/apps.md](docs/setup/apps.md)): tell the
+9. **Don't change openPadel's code for one club.** A setting, a plugin or an issue upstream comes first; a fork is the
+   last resort, rebased at each release and shipped only after the full suite passes
+   ([docs/setup/README.md, "Changing openPadel for your club"](docs/setup/README.md#changing-openpadel-for-your-club)).
+   Never edit files on the server: an update replaces them.
+10. **The phone apps install from the club's own address** ([docs/setup/apps.md](docs/setup/apps.md)): tell the
    owner so. Store apps (Google Play, the App Store) need the club's own developer accounts, in its company's name,
    with their fees: the owner enrols and pays for those; you never enrol one for them. openPadel doesn't build store
    apps yet.

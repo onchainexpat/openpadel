@@ -18,6 +18,9 @@ and for a game's card. [plugins/klaviyo](../../plugins/klaviyo/README.md), keeps
 to club news as a Klaviyo list. To write your own, start from [plugins/template](../../plugins/template/README.md) and
 [writing.md](writing.md).
 
+A plugin is the second choice for something only one club needs, after a setting and before changing openPadel
+itself: [Changing openPadel for your club](../setup/README.md#changing-openpadel-for-your-club).
+
 ## For a club: installing one
 
 The club's agent does the installing (Claude Code, Codex, an assistant connected at `/mcp`), and the owner says yes:
