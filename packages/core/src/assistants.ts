@@ -7,6 +7,7 @@ import { defineAction, readRow } from "./actions.ts";
 import type { Db, Trx } from "./db.ts";
 import { KumiError } from "./errors.ts";
 import { weekSpent } from "./assistant_spend.ts";
+import { HOSTED_CLIENT_ID, hostedName } from "./assistant_chats.ts";
 
 /** The highest weekly cap a person can set: $500. */
 export const MAX_WEEKLY_CAP_CENTS = 50_000;
@@ -15,10 +16,10 @@ const usd = (c: number) => ({ en: money(c, "en"), es: money(c, "es") });
 /** A person's connected assistants, newest first, with this week's spending. */
 export async function assistantsOf(db: Db | Trx, personId: string, now: Date) {
   const rows = await db.selectFrom("oauth_grant").innerJoin("oauth_client", "oauth_client.client_id", "oauth_grant.client_id")
-    .select(["oauth_grant.id", "oauth_client.name", "oauth_grant.weekly_cap_cents", "oauth_grant.created_at",
+    .select(["oauth_grant.id", "oauth_client.client_id", "oauth_client.name", "oauth_grant.weekly_cap_cents", "oauth_grant.created_at",
       (eb) => eb.selectFrom("oauth_token").select((t) => t.fn.max("created_at").as("m")).whereRef("oauth_token.grant_id", "=", "oauth_grant.id").as("last_used")])
     .where("oauth_grant.person_id", "=", personId).where("oauth_grant.revoked_at", "is", null).orderBy("oauth_grant.created_at", "desc").execute();
-  return Promise.all(rows.map(async (r) => ({ id: r.id, name: r.name ?? "An assistant", weekly_cap_cents: r.weekly_cap_cents, spent_cents: await weekSpent(db, r.id, now),
+  return Promise.all(rows.map(async (r) => ({ id: r.id, name: r.client_id === HOSTED_CLIENT_ID ? hostedName() : r.name ?? "An assistant", weekly_cap_cents: r.weekly_cap_cents, spent_cents: await weekSpent(db, r.id, now),
     connected_at: r.created_at, last_used_at: (r.last_used as Date | null) ?? null })));
 }
 
@@ -31,7 +32,7 @@ async function grantOf(ctx: { db: Db | Trx }, id: string) {
   const { row, read } = await readRow(ctx.db, "oauth_grant", id, "thing.assistant");
   if (row.revoked_at) throw new KumiError("error.assistant_disconnected", {}, 409);
   const c = await ctx.db.selectFrom("oauth_client").select("name").where("client_id", "=", row.client_id).executeTakeFirst();
-  return { row, read, name: c?.name ?? "An assistant" };
+  return { row, read, name: row.client_id === HOSTED_CLIENT_ID ? hostedName() : c?.name ?? "An assistant" };
 }
 
 export const assistantSetCap = defineAction({

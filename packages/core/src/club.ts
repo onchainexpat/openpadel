@@ -2,7 +2,7 @@
 import { sql } from "kysely";
 import { erasedMatcher, markRejoined } from "./playtomic_erased.ts";
 import * as z from "zod/mini";
-import { both, capFor, clubFormat, currencyProblem, en, money, setClubFormat, type Key, type Text } from "@kumi/i18n";
+import { both, capFor, clubFormat, currencyProblem, en, money, productName, setAssistantName, setClubFormat, type Key, type Text } from "@kumi/i18n";
 import { parsePhoneNumberFromString } from "libphonenumber-js/min";
 import { defineAction, readRow, type PlanCtx } from "./actions.ts";
 import { KumiError } from "./errors.ts";
@@ -45,7 +45,8 @@ function fieldList(fields: string[], values?: Record<string, unknown>, currency 
     const name = both(`field.${f}` as Key), raw = values?.[f];
     // A yes-or-no setting reads "whether members book courts in the app (yes)"; the rest "the legal name to ...".
     if (values && typeof raw === "boolean") return both(raw ? says.yes : says.no, { field: name });
-    if (values && says.none && (raw === null || raw === "" || (Array.isArray(raw) && !raw.length))) return both(says.none, { field: name });
+    // The assistant's name taken off goes to the install's, which is a name to read out, not "none".
+    if (values && says.none && f !== "assistant_name" && (raw === null || raw === "" || (Array.isArray(raw) && !raw.length))) return both(says.none, { field: name });
     const v = values ? shownValue(f, raw, currency) : null;
     return v ? both(says.to, { field: name, value: v }) : says.plain ? both(says.plain, { field: name }) : name;
   });
@@ -57,6 +58,7 @@ const endOnce = (t: Text): Text => ({ en: t.en.replace(/\.\.$/, "."), es: t.es.r
  *  value isn't worth reading out (a long text, the other language's words, a code nobody reads). */
 function shownValue(field: string, v: unknown, currency: string): Text | string | null {
   if (v === undefined || ["about", "translations", "two_factor"].includes(field)) return null;
+  if (field === "assistant_name" && (v === null || v === "")) return both("plan.assistant_name_default", { name: productName() });
   if (v === null || v === "" || (Array.isArray(v) && !v.length)) return both("plan.value_none");
   if (field === "coming_from" && typeof v === "string") return both(`preset.name_${comingFrom(v)}` as Key);
   if (field === "phone" && typeof v === "string") return clubPhoneShown(v);
@@ -123,12 +125,20 @@ async function currencyChange(db: Db | Trx, code: string) {
   if (await db.selectFrom("payment").select("id").limit(1).executeTakeFirst()) throw new KumiError("error.currency_has_payments", {}, 409);
 }
 
-/** The club's currency and formats for this server's money and dates (format.ts): read as the server starts and again
- *  on each round of jobs, so a change made anywhere reaches every message. */
+/** The club's currency and formats for this server's money and dates (format.ts), and the assistant's name: read as
+ *  the server starts and again on each round of jobs, so a change made anywhere reaches every message. */
 export async function loadClubFormat(db: Db): Promise<void> {
   const c = await db.selectFrom("club").select(["currency", "format_locale", "country"]).executeTakeFirst();
   if (c) setClubFormat({ currency: c.currency, locale: c.format_locale, country: c.country });
+  // And the assistant's name, apart: a database from before it (a restore, a command run before the update's
+  // migrations) still has its formats read, with the install's name.
+  const named = await db.selectFrom("club").select("assistant_name").executeTakeFirst().catch(() => undefined);
+  setAssistantName(named?.assistant_name ?? null);
 }
+
+/** The assistant's name a club gives it (Ask Kumi): a plain name, 1 to 24 characters, the same in both languages. */
+export const assistantNameInput = nameInput(24).check(z.refine((v) => !/[\u2013\u2014]/.test(v), { message: "The assistant's name can't have a long dash in it" }),
+  z.refine((v) => !/^(ask|preg[uú]ntale a)\s/i.test(v), { message: "Give the name alone: the app adds \"Ask\" itself" }));
 
 export const clubUpdate = defineAction({
   name: "club.update", version: 1, strongAuth: true,
@@ -173,6 +183,9 @@ export const clubUpdate = defineAction({
     program_heads_up_hours: z.optional(z.number().check(z.int(), z.minimum(0), z.maximum(336), z.describe("Staff hear this many hours before that decision if a program is short (0: no heads-up)."))),
     // A level a player brings from another app above this waits for staff (level_import.ts); at or below it, it starts.
     level_import_line: z.optional(z.number().check(z.minimum(0), z.maximum(7), z.describe("A level a player brings from another app above this waits for staff to check."))),
+    // What staff and members call the club's assistant: the button reads "Ask {assistant}". null: the install's name
+    // (openPadel, or Kumi on the hosted service).
+    assistant_name: z.optional(z.nullable(assistantNameInput.check(z.describe("The club's own name for its AI assistant (the app says \"Ask <name>\"): a plain name, 1 to 24 characters, the same in both languages, without \"Ask\". null: the install's default name.")))),
     // Who signs in with two steps. It can't be switched off here ('off' is for practice and test databases).
     two_factor: z.optional(z.enum(["owner_manager", "all_staff"]).check(z.describe("Who gives a second step (a passkey or an authenticator app) for the club's most sensitive changes, and at sign-in when second_step_sign_in is on: owners, managers and the club's own roles (owner_manager), or every staff role (all_staff)."))),
     // Whether those roles give it at every sign-in too (off: the emailed or texted code is enough to sign in). The owner's.
@@ -230,6 +243,7 @@ export const clubUpdate = defineAction({
     }
     if (i.amenities) patch.amenities = amenitiesInOrder(i.amenities);
     await ctx.update("club", "singleton", patch); await ctx.emit("club.updated", {});
+    if (i.assistant_name !== undefined) setAssistantName(i.assistant_name);
     if (patch.currency || patch.format_locale || patch.country) setClubFormat({ currency: patch.currency as string | undefined, locale: patch.format_locale as string | undefined, country: patch.country as string | undefined });
     return null;
   },

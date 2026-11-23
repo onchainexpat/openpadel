@@ -4,7 +4,7 @@
 // to the front desk as a question to the club.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Skeleton } from "./Skeleton.tsx";
-import { api, ApiError, clubTime, lang, me, t } from "./state.ts";
+import { api, ApiError, club, clubTime, lang, me, t } from "./state.ts";
 import { dollars, usePreview, type Pending } from "./Preview.tsx";
 import type { AskStatus } from "./ask_status.ts";
 
@@ -67,7 +67,7 @@ export function AskChat({ surface, status: given, autoFocus }: { surface: "staff
       {status.paused && <p class="note" role="status">{t("assistant.usage_paused")}</p>}
       <ul class="plain thread" aria-live="polite">
         {turns.map((x) => <li class={`msg ${x.role === "user" ? "mine" : "other"}`}>
-          <p class="meta">{x.role === "user" ? t("ui.assistant_you") : t(surface === "staff" ? "ui.assistant_title" : "ui.assistant_club_title")}</p>
+          <p class="meta">{x.role === "user" ? t("ui.assistant_you") : surface === "staff" ? t("ui.assistant_title") : club.value?.assistant_name || t("ui.assistant_club_title")}</p>
           <p class="pre">{x.text}</p>
           {x.previews?.map((p) => <p><button type="button" class="small" onClick={() => show(pending(p))}>{t("ui.assistant_review")}</button> <span class="meta">{p.summary}</span></p>)}
         </li>)}

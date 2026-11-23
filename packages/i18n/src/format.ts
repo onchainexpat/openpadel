@@ -44,7 +44,7 @@ export function format(catalog: Catalog, lang: Lang, key: Key, params: Params = 
   // ("Yes, behind the club."), never with another stop after them. A Spanish time ("9:00 a.m.") at a sentence's end too.
   return sayFormer(raw.replace(/\{(\w+)\}(["”»]?)(\.(?!\.))?/g, (_, k: string, quote: string, stop: string | undefined) => {
     // The club's currency sign and how it writes an amount fill {currency} and {amount_example} when not given.
-    const v = params[k] ?? (k === "currency" ? currencySign() : k === "amount_example" ? amountExample() : k === "product" ? productName() : undefined);
+    const v = params[k] ?? (k === "currency" ? currencySign() : k === "amount_example" ? amountExample() : k === "product" ? productName() : k === "assistant" ? assistantName() : undefined);
     if (v === undefined) return `{${k}}${quote}${stop ?? ""}`;
     const s = typeof v === "object" ? v[lang] : String(v);
     return stop && /[.!?…]$/.test(s.trimEnd()) ? s.trimEnd() + quote : s + quote + (stop ?? "");
@@ -64,6 +64,15 @@ let hostedInstall = (serverEnv?.OPENPADEL_HOSTED?.trim() ? serverEnv.OPENPADEL_H
 export function setHosted(on: boolean): void { hostedInstall = on; }
 export const isHosted = (): boolean => hostedInstall;
 export const productName = (): string => (hostedInstall ? HOSTED_NAME : SOFTWARE);
+
+/** The assistant's name (Ask {assistant}): the club's own when it sets one (club.assistant_name, Settings), else the
+ *  install's product name. A name, so the same in both languages. Set like the club's formats: the server from the
+ *  club's settings as it starts and whenever they change, each app from /club. */
+let clubAssistant: string | null = null;
+export function setAssistantName(name: string | null | undefined): void { clubAssistant = name?.trim() || null; }
+/** The name the club set, or null when it uses the install's. */
+export const clubAssistantName = (): string | null => clubAssistant;
+export const assistantName = (): string => clubAssistant ?? productName();
 
 /** The club's currency and formats. A Kumi server runs one club, and so does each app, so this is set once: the
  *  server from the club's settings as it starts and whenever they change (setClubFormat), each app from /club.

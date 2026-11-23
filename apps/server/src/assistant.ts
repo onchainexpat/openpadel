@@ -14,9 +14,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Hono, type Context } from "hono";
-import { actions, assistantChat, assistantChatsOf, claudeCents, connectionReach, countUsage, hostedVia, HOSTED_CLIENT_ID, HOSTED_NAME, KumiError, powersOf, supportOnly, usageAllows, uuidv7, weekSpent,
+import { actions, assistantChat, assistantChatsOf, claudeCents, connectionReach, countUsage, hostedName, hostedVia, HOSTED_CLIENT_ID, HOSTED_NAME, KumiError, powersOf, supportOnly, usageAllows, uuidv7, weekSpent,
   type Db, type Plan } from "@kumi/core";
-import { both, isLang, type Lang } from "@kumi/i18n";
+import { both, isLang, productName, type Lang } from "@kumi/i18n";
 import { mcpServerFor, toolBase, type DoorOpts } from "./mcp.ts";
 import { gaveSecondStep } from "./oauth.ts";
 import { previewWords } from "./preview_words.ts";
@@ -52,7 +52,7 @@ export interface TurnResult { chat_id: string; text: string; previews: ShownPrev
 const LANGUAGE: Record<Lang, string> = { en: "English (United States)", es: "Spanish as spoken in the United States and Latin America, with tú" };
 
 /** The instructions: the same for every turn of a person's day (so they cache), the club's date at the end. */
-export function systemPrompt(surface: Surface, o: { name: string; club: string; tz: string; today: string; lang: Lang }): string {
+export function systemPrompt(surface: Surface, o: { name: string; club: string; tz: string; today: string; lang: Lang; assistant: string; named: string | null }): string {
   const common = [
     `You act only as ${o.name}, with exactly what they may do: the tools you have are the reads and changes their account allows, nothing more.`,
     "Answer questions from the reads. Never guess an id, a time or a price: look it up first.",
@@ -64,9 +64,9 @@ export function systemPrompt(surface: Surface, o: { name: string; club: string; 
     "Be brief: plain words, short sentences, no tables. Never use em dashes.",
     `Reply in ${LANGUAGE[o.lang]}.`,
   ];
-  if (surface === "staff") return [`You are Ask openPadel, the assistant in the staff app of ${o.club}, a padel club.`, ...common,
+  if (surface === "staff") return [`You are ${o.assistant}, the assistant in the staff app of ${o.club}, a padel club.`, ...common,
     "Staff use you to find things fast and to set up changes: plan several steps if needed, reading first."].join("\n");
-  return [`You are the club assistant in the members' app of ${o.club}, a padel club.`, ...common,
+  return [o.named ? `You are ${o.named}, the club assistant in the members' app of ${o.club}, a padel club.` : `You are the club assistant in the members' app of ${o.club}, a padel club.`, ...common,
     "Before anything that books, signs up or pays, make the preview: the person sees the price and confirms it themselves.",
     "If they want a person at the club, or you can't help, tell them to use \"Ask a person\" below, which sends their question to the front desk.",
     "Don't give medical or legal advice."].join("\n");
@@ -113,7 +113,7 @@ export interface TurnDeps { db: Db; model: ModelClient; now: () => Date;
 /** One turn: the person's words, the model's reads and previews, its answer. Kept in the person's conversation. */
 export async function assistantTurn(deps: TurnDeps, who: { id: string; display_name: string; locale: string }, grantId: string, surface: Surface, chatId: string | null, text: string): Promise<TurnResult> {
   const { db, now } = deps, lang: Lang = isLang(who.locale) ? who.locale : "en";
-  const club = await db.selectFrom("club").select(["name", "time_zone"]).executeTakeFirstOrThrow();
+  const club = await db.selectFrom("club").select(["name", "time_zone", "assistant_name"]).executeTakeFirstOrThrow();
   const today = new Intl.DateTimeFormat("en-US", { timeZone: club.time_zone, weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(now());
   let chat = chatId ? await db.selectFrom("assistant_chat").select(["id", "surface"]).where("id", "=", chatId).where("person_id", "=", who.id).executeTakeFirst() : undefined;
   if (chatId && (!chat || chat.surface !== surface)) throw new KumiError("error.not_found", { thing: both("thing.assistant_chat") }, 404);
@@ -121,7 +121,7 @@ export async function assistantTurn(deps: TurnDeps, who: { id: string; display_n
 
   // Never further than the person reached when it was first turned on (assistant_reach.ts); a member's in their app.
   const limited = await connectionReach(db, grantId, who.id, now());
-  const server = await deps.door({ ...who, client_name: HOSTED_NAME, grant_id: grantId }, limited, { via: hostedVia(surface), holdAsk: true, memberOnly: surface === "member" });
+  const server = await deps.door({ ...who, client_name: hostedName(), grant_id: grantId }, limited, { via: hostedVia(surface), holdAsk: true, memberOnly: surface === "member" });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "ask-openpadel", version: "1" });
   await server.connect(b);
@@ -131,7 +131,7 @@ export async function assistantTurn(deps: TurnDeps, who: { id: string; display_n
     const tools: Anthropic.Tool[] = listed.map((t) => ({ name: t.name, description: t.description ?? t.title ?? t.name, input_schema: t.inputSchema as Anthropic.Tool.InputSchema }));
     const allowed = new Set(tools.map((t) => t.name));
     const model = surface === "staff" ? STAFF_MODEL : MEMBER_MODEL, priced = surface === "staff" ? "sonnet" as const : "haiku" as const;
-    const system = systemPrompt(surface, { name: who.display_name, club: club.name, tz: club.time_zone, today, lang });
+    const system = systemPrompt(surface, { name: who.display_name, club: club.name, tz: club.time_zone, today, lang, assistant: club.assistant_name ?? productName(), named: club.assistant_name });
     const added: Anthropic.MessageParam[] = [{ role: "user", content: text }];
     const said: string[] = [], previews: ShownPreview[] = [];
     let stopped: TurnResult["stopped"];

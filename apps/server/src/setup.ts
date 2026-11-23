@@ -9,7 +9,7 @@ import { basename, dirname, resolve } from "node:path";
 import * as z from "zod/mini";
 import { parse } from "yaml";
 import { both, currencyProblem, fromMajor, money, type Key, type Lang, type Text } from "@kumi/i18n";
-import { clubPhone, hoursText, KumiError, pageUrl, readLogo, run, runAsSystem, type Actor, type Db } from "@kumi/core";
+import { assistantNameInput, clubPhone, hoursText, KumiError, pageUrl, readLogo, run, runAsSystem, type Actor, type Db } from "@kumi/core";
 import { COMING_FROM, DEFAULT_COMING_FROM } from "@kumi/i18n/presets";
 import { AMENITIES } from "@kumi/i18n/amenities";
 
@@ -51,10 +51,13 @@ export const ClubFile = z.object({
   // club's logo (SVG, PNG or JPEG, from the file's own folder when it's relative) and logo_for: the background it's
   // made for (light or dark; left out, read from the logo). Left out, the logo stays as it is. phone, website and
   // amenities: how members reach the club and what it has (keys from AMENITIES), set when the club has none yet.
+  // assistant_name: what staff and members call the club's AI assistant ("Ask Kumi"); left out, it stays as it is (the
+  // install's name, openPadel or Kumi, for a new club).
   // currency: the club's currency as its three-letter code (USD, the default, EUR, GBP, MXN...); set while the club has
   // taken no payment (Stripe can't convert what's already paid).
   club: z.object({ currency: z.optional(z.string().check(z.regex(/^[A-Za-z]{3}$/, "a three-letter code like USD or EUR"))), phone: z.optional(z.string().check(z.minLength(1), z.maxLength(40))), website: z.optional(pageUrl), amenities: z.optional(z.array(z.enum(AMENITIES))), logo: z.optional(name), logo_for: z.optional(z.enum(["light", "dark"])), name, time_zone: name, default_language: z.optional(z.enum(["en", "es"])), terms_url: z.optional(pageUrl), privacy_policy_url: z.optional(pageUrl),
-    staff_second_step: z.optional(z.boolean()), coming_from: z.optional(z.enum(COMING_FROM)), brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/, "a colour like #0B5A55"))) }),
+    staff_second_step: z.optional(z.boolean()), coming_from: z.optional(z.enum(COMING_FROM)), brand_colour: z.optional(z.string().check(z.regex(/^#[0-9A-Fa-f]{6}$/, "a colour like #0B5A55"))),
+    assistant_name: z.optional(assistantNameInput) }),
   owner: z.object({ name, email: z.email() }),
   // hours: the location's opening hours (set when it has none yet). price_per_hour: one price for every court there, every
   // day at every hour, in the club's currency (a rule set when the location has no prices yet; peak times and member
@@ -187,13 +190,17 @@ export async function setupClub(db: Db, file: ClubFile, opts: { apply: boolean; 
     async () => ok(await run(db, "club.update", { second_step_sign_in: secondStep }, owner)));
   // The software staff used before and the brand colour, each when the file names one that differs from the club's
   // (so, like staff_second_step, the file wins again over a later change in Settings: the plan shows it first).
-  const look = club ? await db.selectFrom("club").select(["coming_from", "brand_colour"]).executeTakeFirstOrThrow() : { coming_from: DEFAULT_COMING_FROM, brand_colour: "#0B5A55" };
+  const look = club ? await db.selectFrom("club").select(["coming_from", "brand_colour", "assistant_name"]).executeTakeFirstOrThrow() : { coming_from: DEFAULT_COMING_FROM, brand_colour: "#0B5A55", assistant_name: null };
   const from = file.club.coming_from;
   if (from !== undefined && from !== look.coming_from) await step("club.update", both("cli.step.coming_from", { name: both(`preset.name_${from}`) }),
     async () => ok(await run(db, "club.update", { coming_from: from }, owner)));
   const colour = file.club.brand_colour;
   if (colour !== undefined && colour.toLowerCase() !== look.brand_colour.toLowerCase()) await step("club.update", both("cli.step.brand_colour", { colour }),
     async () => ok(await run(db, "club.update", { brand_colour: colour }, owner)));
+  // The assistant's name, the same way: set again by each apply while the file names one.
+  const named = file.club.assistant_name;
+  if (named !== undefined && named !== look.assistant_name) await step("club.update", both("cli.step.assistant_name", { name: named }),
+    async () => ok(await run(db, "club.update", { assistant_name: named }, owner)));
 
   // The logo, when the file names one that isn't the club's logo already (the same file, and made for the same
   // background). It's checked in the plan too, so a logo that can't be used says why before anything is applied.

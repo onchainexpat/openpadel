@@ -13,7 +13,7 @@ import { brandTag, manifestRoutes } from "./manifest.ts";
 import * as z from "zod/mini";
 import { sql } from "kysely";
 import { toJSONSchema } from "zod/v4/core";
-import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, type Lang } from "@kumi/i18n";
+import { pickLang, isLang, formerMember, t, FORMER_MEMBER, isHosted, setAssistantName, type Lang } from "@kumi/i18n";
 import { comingFrom } from "@kumi/i18n/presets";
 import { welcomeDue, greetDue, greeted, connectionReach, anyPhone, promosOn, unsubscribePush, actions, apply, plainIssues, nameInput, personEmailProblem, approve, isYesWaiting, decline, plan, decide, kidOf, KumiError, leavingOn, payKidRun, needsTwoFactor, hasSecondFactor, customAreas, customCan, rolesCan, readAreas, staffReach, textablePhone, activeSupport, logSupportRead, runAsSystem, supportUnderWay, SUPPORT_CLOSED_PATHS, serviceEnv, type Actor, type Db, type Texter } from "@kumi/core";
 import { BotCheck } from "./bot.ts";
@@ -259,7 +259,7 @@ export function makeApp(deps: AppDeps) {
   app.route("/", manifestRoutes(db));
   // What the sign-in page needs before anyone signs in: the club's name, colour and languages.
   app.get("/club", async (c) => {
-    const club = await db.selectFrom("club").select(["name", "brand_colour", "coming_from", "languages", "default_language", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "public_page", "terms_url", "privacy_policy_url", "time_zone", "currency", "format_locale", "country", "tax_label", "prices_include_tax", "read_only_since", "moved_at", "moved_to", "logo_id", "logo_for"]).executeTakeFirst();
+    const club = await db.selectFrom("club").select(["name", "brand_colour", "coming_from", "languages", "default_language", "court_bookings", "players_chat", "weekly_bookings", "weekly_max_weeks", "gift_cards", "gift_card_min_cents", "gift_card_max_cents", "public_page", "terms_url", "privacy_policy_url", "time_zone", "currency", "format_locale", "country", "tax_label", "prices_include_tax", "read_only_since", "moved_at", "moved_to", "logo_id", "logo_for", "assistant_name"]).executeTakeFirst();
     // Not set up yet (kumi setup apply): nothing to show, which isn't the server failing.
     if (!club) throw new KumiError("error.club_not_set_up", {}, 404);
     // Whether there's a membership to join in the app.
@@ -281,8 +281,11 @@ export function makeApp(deps: AppDeps) {
     // The club's own terms and privacy policy: linked where people join, beside the yes to texts and on the profile.
     // Hosted by Kumi (OPENPADEL_HOSTED=1): staff read "Kumi" for the product, and the apps show "Runs on Kumi".
     // The software staff used before (coming_from), always one the staff app knows: words and order only.
+    // The assistant's name the club set (Ask Kumi), or null for the install's: both apps fill {assistant} with it. This
+    // server's own messages read it too, kept in step here as well as each round of jobs (an undo, a change on the CLI).
     // The club's logo, as its icon (the logo on what it sits on), for the apps' headers: named by the brand's tag.
     const { read_only_since, moved_at, moved_to, logo_id, logo_for, ...shown } = club;
+    setAssistantName(club.assistant_name);
     // And the start screen's mark (the logo or the drawn one) under the same tag, so the welcome shows a new one at once.
     const v = brandTag(club.name, club.brand_colour, logo_id && `${logo_id}:${logo_for ?? ""}`);
     const logo = logo_id ? `/manifest/icon-192.png?v=${v}` : null, mark = `/manifest/mark.png?v=${v}`;

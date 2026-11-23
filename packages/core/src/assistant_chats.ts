@@ -17,7 +17,11 @@ import { KumiError } from "./errors.ts";
 
 /** The built-in client the hosted assistant's connections belong to: never offered to OAuth (oauth.ts refuses it). */
 export const HOSTED_CLIENT_ID = "openpadel-hosted";
+/** The name its client row was made with (migration 127). What people read is hostedName(): the club's name for it. */
 export const HOSTED_NAME = "Ask openPadel";
+/** What the hosted assistant is called where it's listed (Assistants, a data export): "Ask Kumi" when the club named it
+ *  Kumi, else the install's name. A name, so the same in both languages. */
+export const hostedName = (): string => both("ui.assistant_title").en;
 /** A conversation is kept this many days after its last turn. */
 export const ASSISTANT_KEEP_DAYS = 30;
 /** What `via` a run the hosted assistant previewed carries. */
@@ -44,7 +48,7 @@ export async function assistantChatsExport(db: Db | Trx, personId: string) {
   for (const c of chats) {
     const rows = await db.selectFrom("assistant_message").select(["role", "shown", "created_at"]).where("chat_id", "=", c.id).where("shown", "is not", null).orderBy("seq").execute();
     out.push({ app: c.surface, title: c.title, started_at: c.created_at.toISOString(), last_at: c.updated_at.toISOString(),
-      turns: rows.map((r) => { const s = r.shown as { text?: string; previews?: { summary: string }[] }; return { from: r.role === "user" ? "you" : HOSTED_NAME, at: r.created_at.toISOString(), text: s.text ?? "", ...(s.previews?.length ? { previews: s.previews.map((p) => p.summary) } : {}) }; }) });
+      turns: rows.map((r) => { const s = r.shown as { text?: string; previews?: { summary: string }[] }; return { from: r.role === "user" ? "you" : hostedName(), at: r.created_at.toISOString(), text: s.text ?? "", ...(s.previews?.length ? { previews: s.previews.map((p) => p.summary) } : {}) }; }) });
   }
   return out;
 }

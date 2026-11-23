@@ -4,7 +4,7 @@ import { pageTitle, type AppKind } from "./title.ts";
 import { h, type ComponentType } from "preact";
 import { lazy } from "preact-iso";
 import { useState } from "preact/hooks";
-import { format, LANGS, pickLang, setClubFormat, setHosted, type Catalog, type Key, type Lang, type Params, formatLocale } from "@kumi/i18n/format";
+import { format, LANGS, pickLang, setAssistantName, setClubFormat, setHosted, type Catalog, type Key, type Lang, type Params, formatLocale } from "@kumi/i18n/format";
 import { brandColours } from "./brand.ts";
 import { wallToMoment } from "./club_clock.ts";
 export { brandColours, contrastOf } from "./brand.ts";
@@ -66,7 +66,9 @@ export type Club = { /** Where a sign-in code emailed goes: "log" with no email 
   /** Prices that include the tax, and what the club calls it (VAT, IVA...). */
   prices_include_tax?: boolean; tax_label?: string | null;
   /** Kumi's hosted service runs this install: "Runs on Kumi" shows, and staff read Kumi for the product. */
-  hosted?: boolean };
+  hosted?: boolean;
+  /** The club's own name for its assistant ("Ask Kumi"), or null for the install's (the product's name). */
+  assistant_name?: string | null };
 
 export const me = signal<Me | null | undefined>(undefined);      // undefined: not loaded yet
 /** Whether to offer a button for a change: a role the club made may not allow it, and a role kept to one location
@@ -84,7 +86,8 @@ export const farewell = signal(false);
 export const club = signal<Club | null>(null);
 // The club's currency and formats reach every amount the app shows or reads (format.ts) as soon as /club loads.
 // Hosted by Kumi: staff read "Kumi" for the product name ({product}), and both apps show "Runs on Kumi".
-effect(() => { const c = club.value; if (c) setHosted(Boolean(c.hosted)); });
+// The assistant's name the club set fills {assistant} (Ask Kumi); without one, the product's name.
+effect(() => { const c = club.value; if (c) { setHosted(Boolean(c.hosted)); setAssistantName(c.assistant_name ?? null); } });
 effect(() => { const c = club.value; if (c) setClubFormat({ ...(c.currency ? { currency: c.currency } : {}), ...(c.format_locale ? { locale: c.format_locale } : {}) }); });
 export const lang = signal<Lang>(pickLang(navigator.language));
 
@@ -163,6 +166,9 @@ export const t = (key: Key, params?: Params) => {
   const all = catalogs.value, l = all[lang.value] ? lang.value : lang.value === "en" ? "es" : "en";
   // A key the language's first part doesn't have yet (a page opened before the rest arrived) comes from the other.
   const has = (x: Lang) => all[x]?.[key] !== undefined, from = has(l) ? l : LANGS.find(has) ?? l;
+  // Words that name the assistant draw again when the club gives it another name (Settings).
+  const m = all[from]?.[key];
+  if (m !== undefined && (typeof m === "string" ? m : m.other).includes("{assistant}")) void club.value;
   return format(all[from] ?? {}, from, key, params);
 };
 // ---- Passkeys, in plain words ----
