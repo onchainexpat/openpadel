@@ -7,7 +7,10 @@ server starts.
 
 openPadel was called Kumi until 7 November 2026; the releases from before then keep the name they had.
 
-## Unreleased
+## 0.9.2 (2026-11-22)
+
+### When updating
+Nothing to do.
 
 ### Fixed
 - `openpadel doctor`'s line for the assistant when it's off says its key can be pasted in the staff app (Settings,
